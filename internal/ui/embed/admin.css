@@ -1,0 +1,1470 @@
+/* Andika font (F6) — self-hosted WOFF2 (latin subset) served from
+   /admin/static/fonts/ so the appliance UI renders the brand font offline,
+   with no dependency on the Google Fonts CDN. system-ui is the fallback. */
+@font-face {
+    font-family: 'Andika';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/admin/static/fonts/andika-400.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+    font-family: 'Andika';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('/admin/static/fonts/andika-700.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* CSS Variables - Design Tokens (Subtask 2.1)
+   Story X (UI/UX refonte, 2026-06-10): palette retaken from
+   color-themes-vrhub.html (dark midnight blue + warm gold).
+   Both Michel and Power modes share these tokens; the difference
+   is expressed in the magnitude of hover effects (set by JS via
+   inline transform on .tiltable elements — see setupTiltCards
+   in admin.js). */
+:root {
+    /* Colors — dark theme (default) */
+    --bg: #1e2637;
+    --surface: #252e42;
+    --surface-hi: #2e3952;
+    --surface-lo: #181d2a;
+    --surface-hover: #2e3952;
+    --accent: #ffd174;
+    --accent-light: #fff0bd;
+    --accent-hover: #ffe18a;
+    --accent-glow: rgba(255, 209, 116, 0.4);
+    --text: #f0ebe4;
+    --text-muted: #8a9080;
+    --text-dim: #6a7060;
+    --border: #2e3952;
+    --ok: #6ab070;
+    --err: #c05050;
+    --success: #6ab070;
+    --error: #c05050;
+    --warning: #d49a4a;
+
+    /* Spacing */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+
+    /* Typography */
+    --font-sans: 'Andika', system-ui, -apple-system, sans-serif;
+    --font-mono: 'SF Mono', Consolas, monospace;
+
+    /* Border Radius */
+    --radius-sm: 0.25rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+
+    /* Header height (Story X: replaces --footer-height; the
+       persistent bottom-left #mode-switch needs padding-bottom
+       so content doesn't sit underneath it). */
+    --header-height: 56px;
+    --nav-height: 38px;
+    --mode-switch-width: 116px;
+    --mode-switch-height: 30px;
+}
+
+/* Light theme tokens (Subtask 2.2 / theme toggle). A full token set so the
+   light variant is coherent — partial overrides previously left dark
+   surface-hi/lo and accent-glow bleeding into the light theme. Activated by
+   the body.theme-light class set by setupThemeToggle() in admin.js. */
+body.theme-light {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --surface-hi: #ffffff;
+    --surface-lo: #e9ecef;
+    --surface-hover: #eef1f4;
+    --accent: #c49000;
+    --accent-light: #e6b422;
+    --accent-hover: #d4a017;
+    --accent-glow: rgba(196, 144, 0, 0.25);
+    --text: #212529;
+    --text-muted: #6c757d;
+    --text-dim: #adb5bd;
+    --border: #dee2e6;
+    --ok: #2f9e44;
+    --err: #c92a2a;
+    --success: #2f9e44;
+    --error: #c92a2a;
+    --warning: #e67700;
+}
+
+/* Theme toggle pill in the header (32×18, circular thumb). The thumb sits
+   left in dark mode and slides right in light mode. */
+.header-theme-toggle {
+    width: 32px;
+    height: 18px;
+    padding: 0;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    background: var(--surface-lo);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+.header-theme-toggle .theme-toggle-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow);
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+body.theme-light .header-theme-toggle .theme-toggle-thumb {
+    transform: translateX(14px);
+}
+.header-theme-toggle:hover {
+    border-color: var(--accent);
+}
+
+/* Reset & Base */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* Tint native checkboxes/radios with the brand gold accent (the wizard
+   already does this in setup.css; this covers the admin shell, e.g. the
+   Games table "Exposed" toggles, which otherwise rendered browser-blue). */
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: var(--accent);
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: var(--mode-line-height, 1.6);
+    min-height: 100vh;
+}
+
+/* Update Banner */
+.update-banner {
+    background: linear-gradient(90deg, var(--accent), #e6b84d);
+    color: var(--bg);
+    padding: 12px 24px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.update-banner .version {
+    font-family: var(--font-mono);
+    opacity: 0.85;
+}
+
+.update-banner:hover {
+    filter: brightness(1.1);
+}
+
+.update-banner-text {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.update-banner-btn {
+    background: var(--bg);
+    color: var(--accent);
+    border: none;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.update-banner-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Layout — default (fallback for no mode class) */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--space-6);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--space-6);
+}
+
+.header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.nav {
+    display: flex;
+    gap: var(--space-4);
+}
+
+.nav-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+}
+
+.nav-link:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+}
+
+.nav-link.active {
+    color: var(--accent);
+    background: rgba(230, 168, 23, 0.1);
+}
+
+/* Main Content */
+.main-content {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    min-height: 400px;
+}
+
+/* Cards */
+.card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* Story X (state-options Option C "Mix"): card lift on hover.
+   Michel: subtle 1px translateY; Power: 2px + soft glow. The Power
+   class is applied to the card via JS (admin.js), but the
+   base hover is shared. */
+.card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+body.mode-power .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4), 0 0 12px var(--accent-glow);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-4);
+}
+
+.card-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s ease;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+    background: var(--surface-hover);
+    transform: translateY(-1px);
+}
+
+/* Status Badges */
+.badge {
+    display: inline-block;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.badge-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+
+.badge-error {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--error);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+}
+
+.modal-content h2 {
+    margin-bottom: var(--space-4);
+}
+
+.modal-content p {
+    color: var(--text-muted);
+    margin-bottom: var(--space-6);
+}
+
+/* Progress Bar */
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+/* Restart Page */
+.restart-page {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+}
+
+.restart-content {
+    text-align: center;
+}
+
+.restart-content h2 {
+    font-size: 2rem;
+    margin-bottom: var(--space-4);
+}
+
+.restart-content p {
+    color: var(--text-muted);
+    margin-bottom: var(--space-4);
+}
+
+/* Tables */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.table th,
+.table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.table th {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+}
+
+.table tr:hover {
+    background: var(--surface-hover);
+}
+
+/* Forms */
+.form-group {
+    margin-bottom: var(--space-4);
+}
+
+.form-label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.form-input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 0.875rem;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Utility Classes */
+.text-center { text-align: center; }
+.text-muted { color: var(--text-muted); }
+.text-success { color: #2ecc71; }
+.text-danger { color: #e74c3c; }
+.mt-4 { margin-top: var(--space-4); }
+.mb-4 { margin-bottom: var(--space-4); }
+
+/* Inline notification (M12) */
+.inline-notification {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    z-index: 9999;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    font-size: 0.875rem;
+    color: var(--text);
+}
+
+/* M9: Constrain update banner in Michel mode to narrow container */
+body.mode-michel .update-banner {
+    max-width: 680px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+/* L2/P12: michel-mode-switch button styles (moved from inline)
+   Story X: #michel-mode-switch is GONE. The mode toggle is now
+   the bottom-left #mode-switch (see Story X block above). */
+
+/* Responsive */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+
+    .nav {
+        flex-wrap: wrap;
+    }
+
+    .update-banner {
+        flex-direction: column;
+        gap: var(--space-3);
+        text-align: center;
+    }
+}
+
+/* ============================================================
+   Dual-mode admin UI (Story 6.1)
+   ============================================================ */
+
+/* Mode-specific body classes drive all layout differences */
+body.mode-michel {
+    --mode-font-size: 1rem;
+    --mode-line-height: 1.6;
+    --mode-max-width: 680px;
+}
+
+body.mode-power {
+    --mode-font-size: 0.875rem;
+    --mode-line-height: 1.4;
+    --mode-max-width: 100%;
+}
+
+/* Story X: CSS-only visibility rules to prevent FOUC before JS runs.
+   The legacy .sidebar / #michel-header / #michel-main / #power-main
+   no longer exist in the new SPA shell — they're replaced by the
+   unified #app-header + #section-dashboard. We now only need to hide
+   the Michel-only / Power-only dashboard widgets (CSS-only). */
+body.mode-michel #power-config-widget,
+body.mode-michel #power-stats-widget {
+    display: none;
+}
+body.mode-power #status-widget,
+body.mode-power #config-widget,
+body.mode-power #game-count-widget {
+    display: none;
+}
+
+/* Story X: in Michel mode, the in-page #section-nav is hidden (the
+   hash routes are still accessible via the URL but the nav links
+   don't take up space). Power mode shows the nav as a sticky bar
+   below the header. */
+body.mode-michel #section-nav {
+    display: none;
+}
+
+/* Mode-specific typography */
+body.mode-michel .main-content {
+    font-size: var(--mode-font-size);
+    line-height: var(--mode-line-height);
+}
+
+body.mode-power .main-content {
+    font-size: var(--mode-font-size);
+    line-height: var(--mode-line-height);
+}
+
+/* ============================================================
+   Michel mode layout (single-column, spacious)
+   Story X: the legacy .container is gone. The Michel mode constrains
+   the SPA main content to a narrow column to keep things readable.
+   ============================================================ */
+body.mode-michel #app-main {
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: var(--space-6);
+}
+
+/* Michel-mode backdrop: slightly darker than the body so the
+   single column feels contained. */
+body.mode-michel {
+    background: var(--bg);
+}
+
+/* Michel mode hides the footer toggle (CSS-only, not JS)
+   Story X: the .mode-footer / .mode-toggle-link elements are
+   deleted; the toggle is now the bottom-left #mode-switch. */
+
+/* ============================================================
+   Power User mode layout
+   Story X: the .sidebar is gone, replaced by #section-nav (a
+   horizontal pill bar below the header). The main content area
+   fills the page width up to 1400px.
+   ============================================================ */
+body.mode-power {
+    padding-bottom: 0; /* #mode-switch is at bottom-left, doesn't need full-width padding */
+}
+
+body.mode-power #app-main {
+    /* Offset by the 240px fixed sidebar; content fills the remaining width
+       up to a readable max. */
+    margin-left: 240px;
+    max-width: 1400px;
+    padding: var(--space-6) var(--space-8);
+    min-width: 0;
+}
+
+/* ============================================================
+   Michel mode dashboard widgets
+   ============================================================ */
+
+/* Story X.1: give the welcome paragraph breathing room before the
+   first card. The dashboard title h1 is small in Michel mode
+   (spacious aesthetic), so the welcome <p> needs margin-bottom to
+   avoid being glued to the status card. Power mode uses a denser
+   layout and its own typography rhythm — no override needed. */
+body.mode-michel #section-dashboard > p {
+    margin-bottom: var(--space-5);
+}
+
+/* Server status widget */
+body.mode-michel .status-widget {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+/* Status indicator dot (UX-DR15) */
+.status-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #6b7280; /* gray inactive */
+    margin-right: var(--space-2);
+    vertical-align: middle;
+}
+
+.status-dot.active {
+    background: var(--success);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); /* soft glow */
+}
+
+/* Badge component (UX-DR16) — pill shape */
+.badge-pill {
+    display: inline-block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-primary {
+    background: linear-gradient(135deg, var(--accent), #e6b84d);
+    color: var(--bg);
+}
+
+.badge-muted {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+/* Story 7.6: network status badge — shared class on both the
+   Power sidebar entry and the Michel header entry. Only one is
+   visible at a time (CSS-driven via body.mode-michel / mode-power
+   rules that hide the other one), so the styles here apply to
+   whichever is currently shown. */
+.network-status-badge {
+    cursor: help;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 1.6rem;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+.network-status-badge.badge-success {
+    /* "all_ok" → green dot, plain success styling. */
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+.network-status-badge.badge-warning {
+    /* One service degraded (4xx) → yellow. */
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+.network-status-badge.badge-error {
+    /* One or both services offline (5xx/timeout/DNS) → red. */
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--error);
+}
+.network-status-badge.badge-muted {
+    /* No check has run yet, or the fetch failed entirely. */
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+/* Sidebar variant: extra vertical spacing so it doesn't crowd
+   the "VRHub Server" brand above and the first nav-link below. */
+.network-status-badge.sidebar-badge {
+    margin: var(--space-2) var(--space-4);
+    align-self: flex-start;
+}
+
+/* Game row component (UX-DR12) */
+.game-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    transition: background 0.15s ease;
+}
+
+.game-row:hover {
+    background: var(--surface-hover);
+}
+
+.game-row.orphan {
+    border: 1px dashed var(--border);
+    opacity: 0.5;
+}
+
+/* ============================================================
+   Footer toggle (Power User mode only)
+   Story X: the .mode-footer is GONE. The mode toggle is now the
+   bottom-left segmented control #mode-switch (defined below).
+   ============================================================ */
+
+/* ============================================================
+   Story X: UNIFIED HEADER (#app-header)
+   Persistent across all routes, identical in Michel and Power modes.
+   Flex row, sticky, dark surface, contains: status dot · server
+   name · baseUri chip · archive password chip (with reveal) ·
+   network badge · language selector · logout button.
+   ============================================================ */
+#app-header {
+    position: sticky;
+    top: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: 12px 24px;
+    background: var(--surface-lo);
+    border-bottom: 1px solid var(--surface-hi);
+    min-height: var(--header-height);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.header-server-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--accent);
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: filter 0.15s ease;
+}
+.header-server-name:hover {
+    filter: brightness(1.15);
+}
+
+/* Header chips: pill-shaped inline elements. */
+.header-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    background: var(--surface);
+    border: 1px solid var(--surface-hi);
+    border-radius: 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    transition: filter 0.15s ease, background 0.15s ease;
+    cursor: default;
+}
+.header-chip[role="button"] {
+    cursor: pointer;
+}
+.header-chip[role="button"]:hover,
+.header-chip[role="button"]:focus-visible {
+    filter: brightness(1.15);
+    background: var(--surface-hi);
+    outline: none;
+}
+.header-chip.password-chip {
+    padding-right: 4px;
+}
+.header-chip-reveal {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.header-chip-reveal:hover {
+    color: var(--accent);
+    background: var(--surface-hi);
+}
+.header-chip-reveal[aria-pressed="true"] {
+    color: var(--accent);
+}
+
+/* Language selector: styled like a header-chip but with a chevron
+   arrow on the right (rendered by the browser). */
+.header-lang-selector {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--surface);
+    border: 1px solid var(--surface-hi);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: filter 0.15s ease, background 0.15s ease;
+}
+.header-lang-selector:hover {
+    filter: brightness(1.15);
+    background: var(--surface-hi);
+}
+.header-lang-selector:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+#header-logout-btn {
+    margin-left: auto;
+    padding: 5px 12px;
+    font-size: 0.75rem;
+}
+
+/* Header status dot — same shared class as the dashboard's
+   .status-dot, just a smaller variant for the header. */
+#header-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+}
+#header-status-dot.active {
+    background: var(--ok);
+    box-shadow: 0 0 6px var(--accent-glow);
+}
+#header-status-dot.error {
+    background: var(--err);
+    box-shadow: 0 0 6px rgba(192, 80, 80, 0.5);
+}
+
+/* ============================================================
+   Story X: IN-PAGE NAV (#section-nav)
+   Power mode only (hidden in Michel via body.mode-michel rule).
+   Horizontal pill bar, sticky below the header.
+   ============================================================ */
+/* DESIGN.md §Sidebar (Power User): a 240px fixed left sidebar with
+   category groups. Collapses to a horizontal scrollable bar on narrow
+   screens (see the responsive overrides further down). */
+#section-nav {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    bottom: 0;
+    width: 240px;
+    z-index: 490;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-4) var(--space-3);
+    background: var(--surface-lo);
+    border-right: 1px solid var(--surface-hi);
+    overflow-y: auto;
+}
+
+.nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--space-3);
+}
+.nav-group-label {
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 0 var(--space-3);
+    margin-bottom: 2px;
+}
+
+.section-nav-link {
+    display: block;
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.8125rem;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.section-nav-link:hover {
+    background: var(--surface-hi);
+    color: var(--text);
+}
+.section-nav-link.active {
+    color: var(--accent);
+    background: rgba(255, 209, 116, 0.12);
+    border-color: var(--accent);
+}
+
+/* ============================================================
+   Story X: MODE SWITCH (#mode-switch)
+   Discrete segmented control, fixed bottom-left, persistent in
+   both modes. The active segment has the gold accent fill.
+   ============================================================ */
+#mode-switch {
+    position: fixed;
+    bottom: 18px;
+    left: 18px;
+    z-index: 600;
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--surface-hi);
+    border-radius: 14px;
+    padding: 3px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+#mode-switch:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 12px var(--accent-glow);
+}
+
+.mode-switch-seg {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 5px 14px;
+    border-radius: 11px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.mode-switch-seg[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--surface-lo);
+}
+.mode-switch-seg:hover:not([aria-pressed="true"]) {
+    color: var(--text);
+    background: var(--surface-hi);
+}
+.mode-switch-seg:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Push main content up so the bottom-left toggle doesn't overlap
+   text. Only ~20px of extra space is enough because the toggle is
+   compact. */
+body {
+    padding-bottom: 60px;
+}
+
+/* ============================================================
+   Story X: SPA ROUTE VISIBILITY (body[data-route])
+   Only the section whose data-route matches body[data-route] is
+   visible. All others are display:none. This is the cornerstone
+   of the SPA shell — there's a 1:1 match between hash and visible
+   section, and CSS does the heavy lifting.
+   ============================================================ */
+#app-main [data-route] {
+    display: none;
+}
+body[data-route="dashboard"] #section-dashboard,
+body[data-route="games"] #section-games,
+body[data-route="configuration"] #section-configuration,
+body[data-route="backup"] #section-backup,
+body[data-route="api-docs"] #section-api-docs,
+body[data-route="monitoring"] #section-monitoring,
+body[data-route="stats"] #section-stats,
+body[data-route="client-setup"] #section-client-setup,
+body[data-route="power-required"] #section-power-required {
+    display: block;
+}
+
+/* In Michel mode, the SPA router redirects any Power-only route
+   (#/games, #/configuration, #/backup, #/api-docs, #/monitoring,
+   #/stats) to #/power-required. The router sets body[data-route] to
+   "power-required" in that case, so the body[data-route] rule above
+   handles the visibility. The Michel-only override below is purely
+   defensive: in case someone disables JS or the router hasn't run
+   yet, the dashboard is always visible in Michel mode. */
+body.mode-michel #section-dashboard,
+body.mode-michel #section-power-required {
+    display: block;
+}
+
+/* Section fade-in: a 120ms ease on opacity + slight Y translate.
+   Triggered by JS adding a class on the newly-active section. */
+.fade-in {
+    animation: sectionFadeIn 140ms ease-out;
+}
+@keyframes sectionFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   Story X.1: TILT CARDS (UX-DR from mock-dashboard.html, lines 452-475)
+   Cards that respond to mouse-move with a 3D tilt. Magnitude is
+   set by JS (cards: ±1.5deg, buttons: ±6deg) by writing the
+   perspective(500px) rotateX(...) rotateY(...) directly on the
+   .tiltable element. The class name matches the validated mockup.
+   ============================================================ */
+.tiltable {
+    transform-style: preserve-3d;
+    transition: transform 0.18s ease;
+    will-change: transform;
+}
+
+/* Power User configuration widget
+   ============================================================ */
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-4);
+}
+
+.config-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+}
+
+.config-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-1);
+}
+
+.config-value {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--text);
+    word-break: break-all;
+}
+
+/* ============================================================
+   Cursor trail effect (UX-DR13)
+   Story X: trail is now visible in BOTH Michel and Power modes.
+   Michel gets a reduced opacity (0.035) + slower animation to
+   keep the effect subtle. Power keeps the full effect (0.055 +
+   0.9s). See state-options.html Option C "Mix".
+   z-index: 0, blobs radial gradient, blur(5px), scale animation
+   spawn on 12px movement + 30ms debounce.
+   ============================================================ */
+.cursor-trail-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+/* B5 fix: body creates stacking context so cursor trail renders above bg */
+body {
+    position: relative;
+    isolation: isolate;
+}
+
+.cursor-blob {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    filter: blur(5px);
+    animation: blob-scale 0.9s ease-in-out infinite;
+}
+
+body.mode-michel .cursor-blob {
+    /* Story X: subtler trail in Michel mode. */
+    background: radial-gradient(circle, rgba(255, 209, 116, 0.035) 0%, transparent 70%);
+    animation-duration: 1.4s;
+}
+
+@keyframes blob-scale {
+    0%, 100% { transform: scale(1); opacity: 0.6; }
+    50% { transform: scale(1.3); opacity: 0.3; }
+}
+
+/* M8/P19/R6-L1: Respect reduced motion preference — hide cursor blobs entirely for motion-sensitive users.
+   R6-L1: opacity:0.3 is redundant once display:none is set; drop the misleading declaration.
+   Story X: extend the rule to cover .fade-in, .tiltable, and the
+   hover lift/glow on .card and .btn-primary. */
+@media (prefers-reduced-motion: reduce) {
+    .cursor-blob { animation: none; display: none; }
+    .fade-in { animation: none; }
+    .tiltable { transform: none !important; }
+    .card:hover,
+    body.mode-power .card:hover,
+    .btn-primary:hover,
+    .btn-secondary:hover,
+    #mode-switch:hover {
+        transform: none !important;
+        box-shadow: none !important;
+    }
+}
+
+/* ============================================================
+   Michel mode responsive adjustments
+   Story X: targets the SPA #app-main and #app-header instead of
+   the legacy .container.
+   ============================================================ */
+@media (max-width: 768px) {
+    body.mode-michel #app-main {
+        padding-left: var(--space-4);
+        padding-right: var(--space-4);
+    }
+    #app-header {
+        padding: 10px 14px;
+        gap: 6px;
+    }
+    #section-nav {
+        padding: 6px 14px;
+    }
+    .header-server-name {
+        font-size: 0.85rem;
+    }
+}
+
+/* ============================================================
+   Power User mode responsive adjustments
+   Story X: sidebar is gone; we collapse #section-nav to a
+   scrollable row on narrow screens.
+   ============================================================ */
+@media (max-width: 900px) {
+    /* Collapse the 240px sidebar into a horizontal scrollable bar below the
+       header on narrow screens; content no longer needs the left offset. */
+    #section-nav {
+        position: sticky;
+        left: auto;
+        bottom: auto;
+        width: auto;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 6px;
+        overflow-x: auto;
+        overflow-y: visible;
+        padding: 6px 14px;
+        background: var(--bg);
+        border-right: none;
+        border-bottom: 1px solid var(--surface-hi);
+        min-height: var(--nav-height);
+        align-items: center;
+    }
+    .nav-group {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 0;
+    }
+    .nav-group-label {
+        display: none;
+    }
+    .section-nav-link {
+        white-space: nowrap;
+        padding: 5px 12px;
+        border-radius: 12px;
+        background: var(--surface);
+    }
+    body.mode-power #app-main {
+        margin-left: 0;
+        padding: var(--space-4);
+    }
+}
+
+/* ============================================================
+   Responsive Design — Mobile-First Small-Screen Adaptation
+   Story 10.1 (2026-06-14)
+   All layout changes are CSS-only media queries targeting
+   max-width breakpoints. No structural HTML or JS required.
+   Desktop experience is unchanged below these breakpoints.
+   ============================================================ */
+
+/* --- Global: prevent horizontal overflow on all viewports --- */
+@media (max-width: 768px) {
+    html, body {
+        overflow-x: hidden;
+        max-width: 100vw;
+    }
+
+    /* --- Header: wrap chips gracefully --- */
+    #app-header {
+        padding: 8px 12px;
+        gap: 5px;
+    }
+
+    .header-chip {
+        max-width: calc(50vw - 36px);
+        font-size: 10px;
+        padding: 3px 7px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Password chip reveal button stays tappable (WCAG SC 2.5.5) */
+    .header-chip-reveal {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px;
+    }
+
+    /* Language selector stays compact */
+    .header-lang-selector {
+        font-size: 10px;
+        padding: 3px 7px;
+    }
+
+    #header-logout-btn {
+        padding: 4px 8px;
+        font-size: 0.6875rem;
+    }
+
+    /* --- Michel mode: fluid max-width, tighter padding --- */
+    body.mode-michel #app-main {
+        padding: var(--space-3) var(--space-4);
+        max-width: min(680px, calc(100vw - 24px));
+    }
+
+    /* --- Power mode: tighter padding on narrow screens --- */
+    body.mode-power #app-main {
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* --- Tables: horizontally scrollable within container --- */
+    .table-container,
+    #games-table,
+    #stats-table {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        width: 100%;
+    }
+
+    .table th,
+    .table td,
+    .stats-table th,
+    .stats-table td {
+        white-space: nowrap;
+        padding: var(--space-2) var(--space-3);
+        font-size: 13px; /* minimum readable size — AC8 */
+    }
+
+    /* --- Nav pills: horizontal scroll with snap (AC5) --- */
+    #section-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 6px 12px;
+        gap: 4px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--surface-hi) transparent;
+    }
+
+    #section-nav::-webkit-scrollbar {
+        height: 4px;
+    }
+    #section-nav::-webkit-scrollbar-thumb {
+        background: var(--surface-hi);
+        border-radius: 2px;
+    }
+
+    .section-nav-link {
+        min-width: 80px;
+        flex-shrink: 0;
+        font-size: 0.7rem;
+        padding: 5px 10px;
+        white-space: nowrap;
+    }
+
+    /* --- Cards stack vertically with consistent gap (AC7) --- */
+    .card {
+        margin-bottom: var(--space-3);
+    }
+
+    body.mode-michel .status-widget {
+        margin-bottom: var(--space-3);
+    }
+
+    /* --- Touch targets >= 44px on interactive elements (AC9) --- */
+    .btn,
+    a[href^="#/"],
+    #mode-switch button {
+        min-height: 44px;
+    }
+
+    .section-nav-link {
+        min-height: 36px; /* pill height; total hit area >= 44px with padding */
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* --- Mode switch repositioning for very small screens (AC4) --- */
+    #mode-switch {
+        bottom: 12px;
+        left: 12px;
+    }
+
+    /* --- Disable non-essential visual effects on mobile (performance) --- */
+    .tiltable {
+        transform: none !important;
+    }
+    .cursor-blob {
+        display: none;
+    }
+}
+
+/* --- Extra-small screens (≤ 360px) — AC2, AC4 --- */
+@media (max-width: 360px) {
+    #mode-switch {
+        bottom: 8px;
+        left: 8px;
+        padding: 2px;
+        border-radius: 10px;
+    }
+
+    .mode-switch-seg {
+        font-size: 0.6rem;
+        padding: 4px 10px;
+        min-height: 32px;
+    }
+
+    #app-header {
+        padding: 6px 8px;
+    }
+
+    .header-chip {
+        max-width: calc(50vw - 28px);
+        font-size: 9px;
+        padding: 2px 5px;
+    }
+
+    body.mode-michel #app-main,
+    body.mode-power #app-main {
+        padding: var(--space-3) var(--space-3);
+    }
+
+    /* Header chips wrap to multiple lines on very narrow screens */
+    #app-header {
+        flex-wrap: wrap;
+    }
+}
+
+/* --- Small tablets (≤ 1024px and > 768px) — AC7 --- */
+@media (max-width: 1024px) and (min-width: 769px) {
+    body.mode-power #app-main {
+        max-width: 100%;
+        padding: var(--space-4) var(--space-6);
+    }
+
+    .header-chip {
+        max-width: calc(33vw - 40px);
+    }
+}
+
+
+/* R10-LOGINFORM-INLINE-STYLE: replace inline style="display: none" on the
+   login section with a CSS class so the form is hideable without inline
+   styles (which Dev Notes explicitly forbid for this UI). */
+.hidden {
+    display: none !important;
+}
+
+/* R10-LOGIN-NO-CSS: login error div had no styling rules. Reuse the
+   existing notification-error class (used for inline notifications
+   elsewhere) and add minor polish for the login-card layout. */
+.notification-error {
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-radius: 6px;
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--error);
+    color: var(--error);
+    font-size: 0.875rem;
+}
+
+.login-card {
+    max-width: 24rem;
+    margin: var(--space-8) auto;
+    padding: var(--space-6);
+}
+
+.login-card .form-group {
+    margin-bottom: var(--space-4);
+}
+
+.login-card label {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-weight: 600;
+}
+
+.login-card input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background-color: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.875rem;
+}
+
+.login-card input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}

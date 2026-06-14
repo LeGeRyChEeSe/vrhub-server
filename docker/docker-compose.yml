@@ -1,0 +1,17 @@
+services:
+  vrhub-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vrhub-server:latest
+    container_name: vrhub-server
+    restart: unless-stopped
+    ports:
+      - "39457:39457"
+    volumes:
+      # Persist the database, config, metadata cache and backups.
+      - ./data:/data
+      # Mount your game library (read-only) so the scanner can index it.
+      # Edit the host path to point at your APK/OBB folder, then add it as a
+      # scanned folder during the setup wizard using the in-container path.
+      - /path/to/your/games:/games:ro

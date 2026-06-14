@@ -1,0 +1,16 @@
+# VRP-GameList.txt — sample input for the setup wizard "scan" step.
+#
+# The setup wizard reads the contents of each game folder selected by the
+# operator and matches APK + OBB pairs to build the `games` table. This file
+# is a manually-curated example that mirrors the format the scanner emits
+# to the admin review screen. It is here for documentation only; it is
+# not consumed by the server at runtime.
+#
+# Format (pipe-delimited, one entry per line):
+#   <ReleaseName> ; <PackageName> ; <FolderName> ; <VersionCode> ; <SizeBytes> ; <OBBSizeBytes>
+#
+# Example entries below. Replace with the games you have legitimately
+# purchased and are storing in your self-hosted library.
+AFGirlfriend;com.NekumaSoft.AFGirlfriend;com.NekumaSoft.AFGirlfriend;1;626955065;0
+Fisherman;com.innerspacevr.afishermanstale;com.innerspacevr.afishermanstale;25;2268193681;0
+SUPERHOT VR;unity.SUPERHOT_Team.SUPERHOT_VR_QA;unity.SUPERHOT_Team.SUPERHOT_VR_QA;161;575339267;0

@@ -1,0 +1,260 @@
+# =============================================================================
+# vrhub-server .gitignore
+# Comprehensive ignore rules for a Go server project with cross-platform
+# builds, embedded admin UI, and an AI-assisted development workflow.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Go build, test and tooling artefacts
+# -----------------------------------------------------------------------------
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Exception: the embedded 7zz CLI binaries MUST be committed so they ship in
+# the repo/CI/release builds (//go:embed reads them at build time). Without
+# these, Windows builds have no embedded 7zz and meta.7z generation fails.
+# The non-.exe platform binaries (linux/darwin/android) are already tracked.
+!internal/archive/embed/7zz/*.exe
+!internal/archive/embed/7zz/*.so
+
+# Local build output directories
+bin/
+dist/
+out/
+build/
+release/
+
+# Test binaries, profiles, coverage reports
+*.test
+*.out
+coverage.out
+coverage.html
+coverprofile.out
+coverprofile.txt
+*.prof
+
+# Go workspace and module cache (keep go.mod / go.sum tracked)
+go-build/
+vendor/
+go.work
+go.work.sum
+
+# -----------------------------------------------------------------------------
+# Server-specific runtime artefacts
+# -----------------------------------------------------------------------------
+
+# Server build output (manifest is copied here from cmd/server/ at build time)
+bin/
+*.exe.manifest
+# Exception: the source sidecar manifest MUST be committed — build.cmd and the
+# release workflow copy it next to the Windows binary.
+!cmd/server/vrhub-server.exe.manifest
+
+# 7z test artefacts produced by integration tests
+meta_test.7z
+*.7z
+!docs/examples/*.7z
+
+# Cookie jars, curl debug dumps, request logs
+vrhub_cookies*.txt
+*cookies*.txt
+*.har
+
+# -----------------------------------------------------------------------------
+# Logs and process output
+# -----------------------------------------------------------------------------
+
+*.log
+logs/
+
+# -----------------------------------------------------------------------------
+# Crash, dump and lock files
+# -----------------------------------------------------------------------------
+
+*.dump
+*.stackdump
+*.dmp
+*.lock
+hs_err_pid*.log
+core.*
+
+# -----------------------------------------------------------------------------
+# Environment, secrets and local config
+# -----------------------------------------------------------------------------
+
+.env
+.env.local
+.env.*.local
+.envrc
+secrets.toml
+local.toml
+
+# -----------------------------------------------------------------------------
+# Database files (SQLite) — the runtime database lives under {data-dir}
+# -----------------------------------------------------------------------------
+
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# -----------------------------------------------------------------------------
+# IDE, editor and OS noise
+# -----------------------------------------------------------------------------
+
+# JetBrains family
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# GoLand / Gogland
+.goland/
+
+# Vim / Emacs / Nano
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+.emacs.desktop
+.emacs.d/
+auto-save-list/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Windows
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# -----------------------------------------------------------------------------
+# Node.js artefacts (admin UI tooling, optional)
+# -----------------------------------------------------------------------------
+
+node_modules/
+package.json
+# Local debug/review scratch artifacts (UI review scripts, CDP dumps, scratch binaries)
+_debug-artifacts/
+# Local test data directory (fresh data-dir used for live audit runs)
+.test-data/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.npm/
+.eslintcache
+.stylelintcache
+
+# -----------------------------------------------------------------------------
+# AI agent and IDE tool directories
+# These hold local-only session state, hooks and config that should never
+# be committed. Adding a new AI tool? Drop its folder here.
+# -----------------------------------------------------------------------------
+
+# Anthropic Claude Code
+.claude/
+CLAUDE.md
+
+# OpenAI Codex CLI
+.codex/
+.aider*
+
+# Google Gemini / Antigravity
+.gemini/
+.antigravitycli/
+
+# OpenCode
+.opencode/
+
+# CommandCode
+.commandcode/
+
+# Qwen / Roo / Kilo / Continue / Cursor
+.qwen/
+.roo/
+.kilocodemodes
+.continue/
+.cursor/
+.cody/
+
+# General "agent" directories used by multiple tools
+.agent/
+.agents/
+/AGENTS.md
+/GEMINI.md
+/QWEN.md
+/MONETIZATION.md
+/PROJECT_DASHBOARD.md
+/ROADMAP.md
+/ACTION_PLAN.md
+/DEVELOPMENT.md
+/WORKTREE-SYSTEM.md
+
+# Story worktree tracking files
+.story-id
+.story-files
+.worktreeinclude
+.claude\.story-automator-active
+
+# -----------------------------------------------------------------------------
+# BMAD methodology artefacts (planning, orchestration logs)
+# -----------------------------------------------------------------------------
+
+_bmad/
+_bmad-output/
+.bmad/
+_bmad_config/
+
+# -----------------------------------------------------------------------------
+# CI / CI helper outputs (kept locally by some workflows)
+# -----------------------------------------------------------------------------
+
+ci-artifacts/
+ci-logs/
+*.junit.xml
+*.trx
+
+# -----------------------------------------------------------------------------
+# Docker build context leftovers
+# -----------------------------------------------------------------------------
+
+docker-compose.override.yml
+.docker/

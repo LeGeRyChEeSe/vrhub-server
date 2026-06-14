@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build release artifacts
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          mkdir -p dist
+          MANIFEST="cmd/server/vrhub-server.exe.manifest"
+
+          build() {
+            local goos="$1" goarch="$2"
+            local stage="dist/stage-${goos}-${goarch}"
+            local bin="vrhub-server-${VERSION}-${goos}-${goarch}"
+            local ext=""
+            if [ "$goos" = "windows" ]; then ext=".exe"; fi
+            rm -rf "$stage" && mkdir -p "$stage"
+            echo "Building ${goos}/${goarch}"
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" \
+              -o "${stage}/${bin}${ext}" ./cmd/server/
+            if [ "$goos" = "windows" ]; then
+              cp "$MANIFEST" "${stage}/${bin}${ext}.manifest"
+            fi
+            ( cd "$stage" && zip -q -r "../vrhub-server-${goos}-${goarch}.zip" . )
+          }
+
+          build windows amd64
+          build windows arm64
+          build linux   amd64
+          build linux   arm64
+          build darwin  amd64
+          build darwin  arm64
+
+          ( cd dist && sha256sum vrhub-server-*.zip > checksums.txt )
+          echo "--- dist ---"
+          ls -l dist
+          cat dist/checksums.txt
+
+      - name: Extract changelog notes
+        id: notes
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Pull the section for this version out of CHANGELOG.md.
+          # Regex-free matching so it behaves the same across awk variants.
+          awk -v hdr="## [${VERSION}]" '
+            index($0, hdr) == 1 { capture = 1; next }
+            capture && index($0, "## [") == 1 { exit }
+            capture && substr($0, 1, 1) == "[" && index($0, "]: ") > 0 { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          # Trim leading/trailing blank lines.
+          sed -i -e '/./,$!d' release-notes.md
+          awk 'NF {p=NR} {a[NR]=$0} END {for (i=1;i<=p;i++) print a[i]}' release-notes.md > release-notes.trimmed
+          mv release-notes.trimmed release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release ${GITHUB_REF_NAME}" > release-notes.md
+          fi
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            dist/vrhub-server-*.zip \
+            dist/checksums.txt

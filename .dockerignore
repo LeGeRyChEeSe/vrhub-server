@@ -1,0 +1,15 @@
+# Keep the Docker build context minimal: only source needed to compile.
+.git
+.github
+bin
+dist
+docs
+docker/data
+*.exe
+*.exe.manifest
+*.7z
+*.log
+*.db
+node_modules
+.test-data
+_debug-artifacts

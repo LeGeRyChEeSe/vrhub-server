@@ -1,0 +1,27 @@
+# Normalise line endings across platforms.
+* text=auto eol=lf
+
+# Go and common text sources are always LF.
+*.go    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.sh    text eol=lf
+
+# Windows helper scripts keep CRLF.
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Treat embedded helper binaries and assets as binary.
+*.exe        binary
+*.so         binary
+*.dll        binary
+*.dylib      binary
+*.png        binary
+*.ico        binary
+*.7z         binary
+internal/archive/embed/7zz/7zz_*  binary

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>vrhub-server logo</title>
+  <desc>Stylised VR headset silhouette with the letters V and S forming the goggles.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2ea44f"/>
+      <stop offset="100%" stop-color="#1a6d34"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="20" ry="20" fill="url(#g)"/>
+  <path d="M20 44 Q20 32 32 32 L96 32 Q108 32 108 44 L108 78 Q108 90 96 90 L80 90 L74 102 L54 102 L48 90 L32 90 Q20 90 20 78 Z"
+        fill="#0d1f12" opacity="0.25"/>
+  <path d="M24 48 Q24 36 36 36 L92 36 Q104 36 104 48 L104 76 Q104 88 92 88 L78 88 L72 98 L56 98 L50 88 L36 88 Q24 88 24 76 Z"
+        fill="#0d1f12"/>
+  <ellipse cx="46" cy="62" rx="14" ry="11" fill="#2ea44f"/>
+  <ellipse cx="82" cy="62" rx="14" ry="11" fill="#2ea44f"/>
+  <text x="46" y="66" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="700"
+        text-anchor="middle" fill="#0d1f12">V</text>
+  <text x="82" y="66" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="700"
+        text-anchor="middle" fill="#0d1f12">S</text>
+</svg>

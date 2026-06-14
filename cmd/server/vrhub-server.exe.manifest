@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Sidecar manifest for vrhub-server.exe.
+
+  Effect: requests `requireAdministrator` at process launch, which makes
+  Windows show a UAC consent prompt the first time the user runs the
+  server. With admin rights, the `internal/firewall` package can
+  successfully invoke `netsh advfirewall firewall add rule` to open
+  the listening TCP port in the host firewall — without the operator
+  having to click through the "Windows Security Alert" popup that
+  Windows shows on a per-port basis (which is what the old VRHub
+  install required for every fresh port).
+
+  Naming: the manifest file MUST be named `vrhub-server.exe.manifest`
+  to be picked up by Windows as a sidecar manifest for
+  `vrhub-server.exe`. If the binary is renamed, this file must be
+  renamed to match.
+
+  Build: when `go build` produces the exe, copy this file next to the
+  output (e.g. `cp vrhub-server.exe.manifest bin/`). The project's
+  `go build` pipeline does not (yet) embed manifests via a .syso
+  resource; if the operator renames the binary the manifest must be
+  renamed accordingly.
+
+  Why not embed: Go's runtime embeds a manifest of its own (DPI
+  awareness + long path support). An external sidecar manifest
+  supersedes the embedded one for requestedExecutionLevel on Windows
+  10+ as long as both declare the same assemblyIdentity name.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+    version="1.0.0.0"
+    name="VRHubServer"
+    processorArchitecture="amd64"/>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel
+          level="requireAdministrator"
+          uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>

@@ -1,0 +1,238 @@
+/* VRHub Server - Setup Wizard CSS (Story 1.6)
+ *
+ * Reuses admin.css design tokens (--bg, --surface, --border,
+ * --accent, --text, --text-muted, --success, --error, --space-2/3/4/6/8,
+ * --radius-md) and the .btn, .form-group, .form-input, .hidden,
+ * .notification-error classes. No new colors, fonts, or spacing tokens.
+ *
+ * The wizard is theme-neutral (no mode-michel / mode-power body class
+ * is set), so token overrides for body.theme-light from admin.css
+ * apply automatically via the :root cascade.
+ */
+
+.wizard-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    overflow-y: auto;
+}
+
+.wizard-container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-6);
+}
+
+.wizard-stepper {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-8);
+}
+
+.wizard-step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.wizard-step-dot.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(230, 168, 23, 0.15);
+}
+
+.wizard-step-dot.done {
+    background: var(--success);
+    color: var(--bg);
+    border-color: var(--success);
+}
+
+.wizard-step-connector {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    transition: background 0.2s ease;
+}
+
+.wizard-step-connector.active {
+    background: var(--accent);
+}
+
+.wizard-section {
+    /* Default visible; .hidden is the only way to hide a step. */
+    /* (admin.css:850 defines .hidden { display: none !important; }) */
+}
+
+.wizard-step-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 var(--space-2) 0;
+}
+
+.wizard-step-subtitle {
+    color: var(--text-muted);
+    margin: 0 0 var(--space-6) 0;
+    font-size: 0.875rem;
+}
+
+.wizard-actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+.wizard-actions .btn {
+    flex: 1;
+}
+
+.wizard-game-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+.wizard-game-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+
+.wizard-game-item:last-child {
+    border-bottom: none;
+}
+
+.wizard-game-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+.wizard-game-name {
+    font-weight: 500;
+}
+
+.wizard-game-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.wizard-game-corrupted {
+    font-size: 0.75rem;
+    color: var(--error);
+    flex-shrink: 0;
+}
+
+.wizard-credentials-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-top: var(--space-4);
+}
+
+.wizard-credentials-box code {
+    font-family: var(--font-mono);
+    word-break: break-all;
+    display: block;
+    margin: var(--space-2) 0;
+}
+
+.wizard-instructions {
+    list-style: decimal;
+    padding-left: var(--space-6);
+    color: var(--text);
+}
+
+.wizard-instructions li {
+    margin-bottom: var(--space-2);
+}
+
+.wizard-scan-progress {
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: var(--space-3);
+    font-size: 0.875rem;
+}
+
+/* ============================================================
+   Responsive — Setup wizard mobile adaptation
+   Story 10.1 (2026-06-14)
+   Ensures the setup wizard is fully usable on mobile viewports
+   (320–768px), with special attention to iOS zoom-on-focus,
+   touch target sizes, and stepper layout.
+   ============================================================ */
+
+@media (max-width: 480px) {
+    .wizard-container {
+        padding: var(--space-6) var(--space-4);
+        max-width: 100vw;
+    }
+
+    .wizard-step-title {
+        font-size: 1.25rem;
+    }
+
+    /* Prevent iOS zoom on focus for form inputs (AC6) */
+    .form-input,
+    input[type="text"],
+    input[type="password"] {
+        font-size: 16px !important;
+        min-height: 44px;
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Stepper dots scale down proportionally (AC6) */
+    .wizard-step-dot {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+
+    .wizard-step-connector {
+        height: 1px;
+    }
+
+    /* Game list rows tappable — ≥ 48px row height (AC6) */
+    .wizard-game-item {
+        min-height: 48px;
+        padding: var(--space-3);
+    }
+
+    .wizard-game-list {
+        max-height: 50vh;
+    }
+
+    /* Checkbox stays tappable */
+    .wizard-game-item input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+    }
+}
+
+/* Extra-small screens — full-width action buttons (AC6) */
+@media (max-width: 360px) {
+    .wizard-actions .btn {
+        width: 100%;
+    }
+
+    .wizard-container {
+        padding: var(--space-4) var(--space-3);
+    }
+}
