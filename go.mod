@@ -8,7 +8,6 @@ require (
 	github.com/go-chi/chi/v5 v5.2.0
 	github.com/rs/zerolog v1.35.1
 	github.com/shogo82148/androidbinary v1.0.5
-	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/crypto v0.52.0
 	modernc.org/sqlite v1.50.1
 )

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
@@ -53,7 +54,16 @@ func (e *e2eTestEnv) Cfg() *types.Config { return e.cfg }
 // it back for the served-file path).
 func newE2EEnv(t *testing.T) *e2eTestEnv {
 	t.Helper()
-	tmpDir := t.TempDir()
+	// A self-managed temp dir (not t.TempDir) so cleanup can close the
+	// DB and then retry removal. Serving a file fires an async
+	// fire-and-forget download-stats goroutine (see serveFileDownload),
+	// which can still be flushing SQLite WAL files into dataDir while the
+	// directory is being torn down; t.TempDir's single-shot RemoveAll
+	// races with that and fails with "directory not empty".
+	tmpDir, err := os.MkdirTemp("", "vrhub-e2e-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatalf("mkdir dataDir: %v", err)
@@ -63,7 +73,20 @@ func newE2EEnv(t *testing.T) *e2eTestEnv {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { _ = gameDB.Close() })
+	t.Cleanup(func() {
+		// Close first: sql.DB.Close waits for in-flight queries, after
+		// which any late stats goroutine gets "database is closed" and
+		// writes nothing. Then retry removal to absorb a WAL file that
+		// may briefly linger from the race described above.
+		_ = gameDB.Close()
+		for i := 0; i < 100; i++ {
+			if rmErr := os.RemoveAll(tmpDir); rmErr == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = os.RemoveAll(tmpDir)
+	})
 
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
