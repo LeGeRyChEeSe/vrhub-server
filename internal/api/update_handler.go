@@ -60,6 +60,14 @@ type UpdateHandler struct {
 	// state atomic to Failed but the goroutine kept downloading.
 	applyCancel atomic.Pointer[context.CancelFunc]
 
+	// ShutdownFn is called before process restart to close the HTTP
+	// listener so the replacement process can bind the same port.
+	// On Windows, triggerRestart holds the port open for 2 seconds during
+	// its liveness-check window; without this the child hits EADDRINUSE
+	// and both parent and child die. Wired by the router from main.go's
+	// liveRebinder after the http.Server is created.
+	ShutdownFn func(context.Context) error
+
 	// changelog cache — avoids hitting the GitHub API on every navigation.
 	changelogMu     sync.Mutex
 	changelogCache  []update.ReleaseInfo
@@ -378,6 +386,23 @@ func (h *UpdateHandler) HandleUpdateRestartPOST(w http.ResponseWriter, r *http.R
 	// Flush response before exiting.
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
+	}
+
+	// Close the HTTP listener before spawning the replacement process.
+	// On Windows, triggerRestart holds the port for up to 2 seconds in its
+	// liveness-check window; if the child starts fast enough it hits
+	// EADDRINUSE and both parent and child die. Shutting down the server
+	// here frees the port before the child attempts to bind it.
+	// The goroutine is killed by os.Exit inside TriggerRestart on success.
+	if h.ShutdownFn != nil {
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		go func() {
+			defer shutCancel()
+			_ = h.ShutdownFn(shutCtx)
+		}()
+		// Brief pause so the listener has time to close before the child
+		// process attempts to bind the same address.
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	if err := update.TriggerRestart(); err != nil {

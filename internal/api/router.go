@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -691,6 +692,17 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 				updateCfg.AutoRestart = cfg.Update.AutoRestart
 			}
 			updateHandler := NewUpdateHandler(updateCfg, dataDir)
+			// Wire the HTTP-shutdown callback so HandleUpdateRestartPOST
+			// can close the listener before spawning the replacement process.
+			// Uses a type assertion so the Reloader interface stays unchanged
+			// and test mocks that only implement Rebind are unaffected.
+			if reloader != nil {
+				if s, ok := reloader.(interface {
+					Shutdown(context.Context) error
+				}); ok {
+					updateHandler.ShutdownFn = s.Shutdown
+				}
+			}
 			// Story 9.1 (B1): expose updateHandler to the deferred
 			// ConfigPropagator closure so post-launch propagation
 			// can refresh its .UpdateConfig (owner/repo/token/etc.).

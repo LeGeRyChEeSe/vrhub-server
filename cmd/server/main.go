@@ -545,6 +545,19 @@ func newLiveRebinder() *liveRebinder {
 	return &liveRebinder{}
 }
 
+// Shutdown gracefully shuts down the current HTTP server, closing its
+// listener so the replacement process can bind the same address.
+// Called by UpdateHandler before triggering a process restart.
+func (r *liveRebinder) Shutdown(ctx context.Context) error {
+	r.mu.Lock()
+	s := *r.server
+	r.mu.Unlock()
+	if s == nil {
+		return nil
+	}
+	return s.Shutdown(ctx)
+}
+
 // Rebind shuts down the current server (if any) and starts a new one
 // on addr. Returns an error if the new listener fails to bind (in
 // which case the old listener is left running).
