@@ -575,6 +575,35 @@ func TestIsJSONRequest_Direct(t *testing.T) {
 	}
 }
 
+// TestIsJSONRequest_AdminAPIPath verifies that /admin/api/* paths are always
+// classified as JSON regardless of Accept header. This prevents fetch() callers
+// (which don't set Accept: application/json) from receiving an HTML redirect
+// when their session expires, which would surface as a JSON parse error.
+func TestIsJSONRequest_AdminAPIPath(t *testing.T) {
+	cases := []struct {
+		path   string
+		accept string
+		want   bool
+	}{
+		{"/admin/api/games/rescan", "", true},
+		{"/admin/api/games", "", true},
+		{"/admin/api/admin/settings", "", true},
+		{"/admin/api/auth/login", "text/html", true},   // path wins over Accept
+		{"/admin/login", "", false},                    // UI route → HTML
+		{"/admin/settings", "text/html", false},        // UI route → HTML
+		{"/admin/api/games/rescan", "*/*", true},       // path wins over wildcard
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+		if tc.accept != "" {
+			req.Header.Set("Accept", tc.accept)
+		}
+		if got := IsJSONRequest(req); got != tc.want {
+			t.Errorf("path=%q accept=%q: IsJSONRequest()=%v, want %v", tc.path, tc.accept, got, tc.want)
+		}
+	}
+}
+
 func TestSessionFromContext(t *testing.T) {
 	ctx := context.Background()
 	_, ok := SessionFromContext(ctx)

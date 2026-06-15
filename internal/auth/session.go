@@ -856,6 +856,12 @@ var validXRequestedWith = map[string]struct{}{
 // This function is the single source of truth for the JSON/HTML classification used by
 // both HandleAuthLoginPOST and SessionAuthMiddleware (extracted to avoid logic drift).
 func IsJSONRequest(r *http.Request) bool {
+	// API routes (/admin/api/*) are always JSON endpoints — redirect HTML
+	// responses break fetch() callers that don't set Accept: application/json.
+	if strings.HasPrefix(r.URL.Path, "/admin/api/") {
+		return true
+	}
+
 	accept := r.Header.Get("Accept")
 	if accept == "" {
 		// No Accept header → treat as HTML (browser default).
