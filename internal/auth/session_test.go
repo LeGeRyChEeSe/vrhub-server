@@ -575,32 +575,28 @@ func TestIsJSONRequest_Direct(t *testing.T) {
 	}
 }
 
-// TestWriteAuthError_AdminAPIPath verifies that writeAuthError returns 401 JSON
-// for /admin/api/* routes (excluding /admin/api/auth/*) regardless of Accept
-// header. This prevents fetch() callers that omit Accept: application/json
-// from receiving an HTML redirect that breaks JSON parsing.
-func TestWriteAuthError_AdminAPIPath(t *testing.T) {
+// TestWriteAuthError_JSONvsHTML verifies that writeAuthError returns 401 JSON
+// for requests with Accept: application/json and 302 redirect for HTML clients.
+// Admin JS fetch() callers must include Accept: application/json to receive a
+// proper 401 instead of an HTML redirect (see admin.js triggerRescan).
+func TestWriteAuthError_JSONvsHTML(t *testing.T) {
 	cases := []struct {
 		path       string
 		accept     string
 		wantStatus int
-		wantJSON   bool // true → 401 JSON, false → 302 HTML redirect
+		wantJSON   bool
 	}{
-		// Machine-facing API routes → always JSON 401
-		{"/admin/api/games/rescan", "", http.StatusUnauthorized, true},
-		{"/admin/api/games", "", http.StatusUnauthorized, true},
-		{"/admin/api/admin/settings", "", http.StatusUnauthorized, true},
-		{"/admin/api/games/rescan", "*/*", http.StatusUnauthorized, true},
-		// Auth endpoints → normal negotiation (HTML form uses these)
-		{"/admin/api/auth/login", "text/html", http.StatusFound, false},
-		{"/admin/api/auth/login", "application/json", http.StatusUnauthorized, true},
-		// UI routes → redirect
+		// Explicit JSON Accept → 401 JSON
+		{"/admin/api/games/rescan", "application/json", http.StatusUnauthorized, true},
+		{"/admin/api/admin/settings", "application/json", http.StatusUnauthorized, true},
+		// No Accept / HTML → 302 redirect (browser navigation or unset header)
+		{"/admin/api/games/rescan", "", http.StatusFound, false},
+		{"/admin/api/update/status", "", http.StatusFound, false},
 		{"/admin/login", "", http.StatusFound, false},
-		{"/admin/settings", "text/html", http.StatusFound, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path+"_accept="+tc.accept, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			if tc.accept != "" {
 				req.Header.Set("Accept", tc.accept)
 			}

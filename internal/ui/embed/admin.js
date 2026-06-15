@@ -171,7 +171,10 @@ function fetchServerStatus() {
     var stopBtn = document.getElementById('stop-btn');
     if (!statusDot || !statusText) return;
 
-    fetch('/admin/api/update/status')
+    fetch('/admin/api/update/status', {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+    })
         .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) {
             // If we can reach the API, server is running
@@ -261,7 +264,11 @@ function fetchGameCount() {
     if (currentGameCountController) currentGameCountController.abort();
     currentGameCountController = new AbortController();
 
-    fetch('/admin/api/games', { signal: currentGameCountController.signal })
+    fetch('/admin/api/games', {
+        signal: currentGameCountController.signal,
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+    })
         .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) {
             var count = 0;
@@ -389,7 +396,10 @@ function fetchPowerStats() {
     if (!grid) return;
 
     // Fetch game count for Power User (full precision)
-    fetch('/admin/api/games')
+    fetch('/admin/api/games', {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+    })
         .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) {
             var count = 0;
@@ -519,6 +529,7 @@ function triggerRescan(btn, statusEl) {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
+            'Accept': 'application/json',
             'Content-Type': 'application/json',
             'X-CSRF-Token': getCSRFToken()
         }
@@ -581,7 +592,10 @@ function renderGamesTable() {
     // ReferenceError ("mode is not defined") that fell into the
     // .catch and showed "Failed to load games." for every visit.
     var mode = getMode();
-    fetch('/admin/api/games', { credentials: 'same-origin' })
+    fetch('/admin/api/games', {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+    })
         .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(data) {
             var games = (data && data.data && data.data.games) || [];
@@ -645,6 +659,7 @@ function renderGamesTable() {
                         method: 'PATCH',
                         credentials: 'same-origin',
                         headers: {
+                            'Accept': 'application/json',
                             'Content-Type': 'application/json',
                             'X-CSRF-Token': getCSRFToken()
                         },
@@ -1950,7 +1965,11 @@ async function fetchUpdateStatus() {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-        const response = await fetch('/admin/api/update/status', { signal: controller.signal });
+        const response = await fetch('/admin/api/update/status', {
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        });
         clearTimeout(timeoutId);
         if (!response.ok) {
             return;
@@ -2072,6 +2091,7 @@ async function triggerUpdate() {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
+                'Accept': 'application/json',
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': getCSRFToken()
             },
@@ -2102,7 +2122,11 @@ async function triggerUpdate() {
                 const pollController = new AbortController();
                 const pollTimeout = setTimeout(() => pollController.abort(), 3000);
 
-                const pollResponse = await fetch('/admin/api/update/status', { signal: pollController.signal });
+                const pollResponse = await fetch('/admin/api/update/status', {
+                    signal: pollController.signal,
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin'
+                });
                 clearTimeout(pollTimeout);
 
                 if (pollResponse.ok) {
@@ -2904,7 +2928,10 @@ function initNetworkStatus() {
     }
 
     function poll() {
-        fetch('/admin/api/network-status', { credentials: 'same-origin' })
+        fetch('/admin/api/network-status', {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+        })
             .then(function(r) {
                 if (!r.ok) {
                     // 503 NOT_CONFIGURED (checker nil) or other server

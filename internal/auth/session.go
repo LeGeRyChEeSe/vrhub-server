@@ -799,14 +799,7 @@ func SessionAuthMiddlewareWithHostFunc(store *SessionStore, hostFunc func() stri
 // it, an aggressive intermediary could cache the redirect and serve a
 // stale "unauthenticated" response after the user has since logged in.
 func writeAuthError(w http.ResponseWriter, r *http.Request) {
-	// /admin/api/* are machine-facing JSON endpoints: a redirect to the HTML
-	// login page is useless (fetch() follows it silently and the caller gets
-	// an HTML 200, breaking JSON parsing). Auth endpoints (/admin/api/auth/*)
-	// are excluded because the browser's login form submits there and expects
-	// the normal HTML/redirect behaviour based on Accept negotiation.
-	isAPIRoute := strings.HasPrefix(r.URL.Path, "/admin/api/") &&
-		!strings.HasPrefix(r.URL.Path, "/admin/api/auth/")
-	if isAPIRoute || IsJSONRequest(r) {
+	if IsJSONRequest(r) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusUnauthorized)
