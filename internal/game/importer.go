@@ -2,7 +2,7 @@ package game
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/md5"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -16,6 +16,14 @@ import (
 	vlog "github.com/LeGeRyChEeSe/vrhub-server/internal/log"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
+
+// vrpHash returns MD5(packageName + "\n") — the hash the VRHub client uses
+// to construct download URLs (mirrors CryptoUtils.md5(releaseName + "\n")
+// in the Android client's DownloadWorker).
+func vrpHash(packageName string) string {
+	h := md5.Sum([]byte(packageName + "\n"))
+	return fmt.Sprintf("%x", h)
+}
 
 // GameManager handles game import and deletion operations.
 type GameManager struct {
@@ -104,8 +112,7 @@ func (gm *GameManager) ImportAPK(filePath string) error {
 		// Use file info obtained above (TOCTOU fix)
 		sizeBytes := info.Size()
 
-		// Fix #6 (Round 11): Use SHA-256 of file path for hash consistency with valid APK imports
-		fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(filePath)))
+		fileHash := vrpHash(fallbackName)
 
 		gameEntry := types.GameEntry{
 			ReleaseName:      fallbackName,
@@ -261,8 +268,7 @@ func (gm *GameManager) ImportAPK(filePath string) error {
 		corruptionReason = obbReason
 	}
 
-	// Compute SHA-256 hash of file path for uniqueness (Fix #6: avoid UNIQUE constraint failures)
-	fileHash := fmt.Sprintf("%x", sha256.Sum256([]byte(filePath)))
+	fileHash := vrpHash(meta.PackageName)
 
 	// Create game entry
 	gameEntry := types.GameEntry{
