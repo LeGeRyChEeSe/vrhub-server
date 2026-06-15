@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-15
+
+### Fixed
+- **"Scan failed: Unexpected token '<'" on session expiry:** All `fetch()` calls in the
+  admin UI now send `Accept: application/json`. Previously, when a session expired the
+  auth middleware returned an HTML 302 redirect (no `Accept` header → not a JSON client),
+  `fetch()` followed it silently, received an HTML login page with HTTP 200, and the
+  caller's `.json()` parse threw "Unexpected token '<'…". Sending the header ensures the
+  middleware returns 401 JSON instead, and the UI displays a proper error message.
+
 ## [0.1.1] - 2026-06-15
 
 ### Fixed
@@ -20,12 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only the APK. The listing now injects the OBB basename from `game.OBBPath` when it
   resides outside the APK directory. The download handler already used `OBBPath` directly
   so no change was needed there.
-- **Admin API returns HTML on session expiry:** Routes under `/admin/api/*` are JSON
-  endpoints, but the session-auth middleware returned an HTML 302 redirect when the
-  session had expired. `fetch()` calls that omit `Accept: application/json` followed the
-  redirect silently, received an HTML login page with status 200, and failed JSON
-  parsing — surfacing as "Scan failed: Unexpected token '<'…". All `/admin/api/*` paths
-  now always receive a 401 JSON response on auth failure.
 
 ## [0.1.0] - 2026-06-14
 
@@ -79,6 +83,7 @@ First public release.
   firewall clicks. The helper is a runtime no-op on Linux and macOS.
 - The embedded 7z helper binaries are bundled for every supported target.
 
-[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/LeGeRyChEeSe/vrhub-server/releases/tag/v0.1.0
