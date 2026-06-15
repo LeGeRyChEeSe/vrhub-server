@@ -575,32 +575,47 @@ func TestIsJSONRequest_Direct(t *testing.T) {
 	}
 }
 
-// TestIsJSONRequest_AdminAPIPath verifies that /admin/api/* paths are always
-// classified as JSON regardless of Accept header. This prevents fetch() callers
-// (which don't set Accept: application/json) from receiving an HTML redirect
-// when their session expires, which would surface as a JSON parse error.
-func TestIsJSONRequest_AdminAPIPath(t *testing.T) {
+// TestWriteAuthError_AdminAPIPath verifies that writeAuthError returns 401 JSON
+// for /admin/api/* routes (excluding /admin/api/auth/*) regardless of Accept
+// header. This prevents fetch() callers that omit Accept: application/json
+// from receiving an HTML redirect that breaks JSON parsing.
+func TestWriteAuthError_AdminAPIPath(t *testing.T) {
 	cases := []struct {
-		path   string
-		accept string
-		want   bool
+		path       string
+		accept     string
+		wantStatus int
+		wantJSON   bool // true → 401 JSON, false → 302 HTML redirect
 	}{
-		{"/admin/api/games/rescan", "", true},
-		{"/admin/api/games", "", true},
-		{"/admin/api/admin/settings", "", true},
-		{"/admin/api/auth/login", "text/html", true}, // path wins over Accept
-		{"/admin/login", "", false},                  // UI route → HTML
-		{"/admin/settings", "text/html", false},      // UI route → HTML
-		{"/admin/api/games/rescan", "*/*", true},     // path wins over wildcard
+		// Machine-facing API routes → always JSON 401
+		{"/admin/api/games/rescan", "", http.StatusUnauthorized, true},
+		{"/admin/api/games", "", http.StatusUnauthorized, true},
+		{"/admin/api/admin/settings", "", http.StatusUnauthorized, true},
+		{"/admin/api/games/rescan", "*/*", http.StatusUnauthorized, true},
+		// Auth endpoints → normal negotiation (HTML form uses these)
+		{"/admin/api/auth/login", "text/html", http.StatusFound, false},
+		{"/admin/api/auth/login", "application/json", http.StatusUnauthorized, true},
+		// UI routes → redirect
+		{"/admin/login", "", http.StatusFound, false},
+		{"/admin/settings", "text/html", http.StatusFound, false},
 	}
 	for _, tc := range cases {
-		req := httptest.NewRequest(http.MethodPost, tc.path, nil)
-		if tc.accept != "" {
-			req.Header.Set("Accept", tc.accept)
-		}
-		if got := IsJSONRequest(req); got != tc.want {
-			t.Errorf("path=%q accept=%q: IsJSONRequest()=%v, want %v", tc.path, tc.accept, got, tc.want)
-		}
+		t.Run(tc.path+"_accept="+tc.accept, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
+			if tc.accept != "" {
+				req.Header.Set("Accept", tc.accept)
+			}
+			rec := httptest.NewRecorder()
+			writeAuthError(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Errorf("status=%d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantJSON {
+				ct := rec.Header().Get("Content-Type")
+				if ct != "application/json" {
+					t.Errorf("Content-Type=%q, want application/json", ct)
+				}
+			}
+		})
 	}
 }
 
