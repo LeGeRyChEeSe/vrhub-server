@@ -40,13 +40,10 @@ func ExtractAPKMetadata(apkPath string) (APKMetadata, error) {
 		return meta, nil
 	}
 
-	// If the APK library fails (typically because resources.arsc is missing),
-	// fall back to the lightweight manifest-only parser.
-	if strings.Contains(err.Error(), "resources.arsc") {
-		return extractViaManifestOnly(apkPath)
-	}
-
-	return APKMetadata{}, err
+	// Always try the manifest-only fallback regardless of error type.
+	// Some APKs use non-standard signing blocks or other formats that
+	// confuse the full APK library but still have a valid AXML manifest.
+	return extractViaManifestOnly(apkPath)
 }
 
 // extractViaAPKLib uses the full androidbinary/apk library including

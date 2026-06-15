@@ -500,8 +500,14 @@ func ScanAndImportMultiple(ctx context.Context, dirs []string, importer GameImpo
 
 	// Track packages found in current scan
 	foundPackages := make(map[string]bool)
+	// seenPaths records every APK file path found on disk during this scan,
+	// regardless of whether metadata extraction succeeded. Used in the
+	// "removed games" check to avoid deleting DB entries for APKs that are
+	// physically present but couldn't be parsed.
+	seenPaths := make(map[string]bool)
 
 	for _, apk := range apkFiles {
+		seenPaths[apk.Path] = true
 		select {
 		case <-ctx.Done():
 			return result, fmt.Errorf("rescan cancelled: %w", ctx.Err())
@@ -576,6 +582,14 @@ func ScanAndImportMultiple(ctx context.Context, dirs []string, importer GameImpo
 							result.GamesRemoved++
 							vlog.Get().Info().Str("package", pkg).Msg("marked corrupted game as not exposed (file deleted)")
 						}
+						continue
+					}
+					// Preserve DB entry if the APK file was found on disk but
+					// metadata extraction failed (e.g. non-standard AXML encoding).
+					// apk_path="" means a legacy pre-9.10 game — skip this guard
+					// (those games live in dataDir/games/ and are not in seenPaths).
+					if gameEntry.ApkPath != "" && seenPaths[gameEntry.ApkPath] {
+						vlog.Get().Warn().Str("package", pkg).Str("apk_path", gameEntry.ApkPath).Msg("APK present on disk but metadata extraction failed; preserving DB entry")
 						continue
 					}
 				}
