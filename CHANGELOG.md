@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-15
+
+### Fixed
+- **Game URL hash regression:** The file-server hash was changed to SHA-256(filepath) in
+  story 9.10, breaking VRHub URL compatibility. The VRHub client always derives the URL
+  hash as MD5(releaseName + "\n"); the importer now uses the same algorithm so download
+  URLs resolve correctly after re-import.
+- **OBB not downloaded for games with subdirectory layout:** When the OBB file lives in a
+  subdirectory of the release folder (e.g. `com.Package/main.N.com.Package.obb`) the
+  file listing at `/{hash}/{packageName}/` omitted it, causing the client to download
+  only the APK. The listing now injects the OBB basename from `game.OBBPath` when it
+  resides outside the APK directory. The download handler already used `OBBPath` directly
+  so no change was needed there.
+- **Admin API returns HTML on session expiry:** Routes under `/admin/api/*` are JSON
+  endpoints, but the session-auth middleware returned an HTML 302 redirect when the
+  session had expired. `fetch()` calls that omit `Accept: application/json` followed the
+  redirect silently, received an HTML login page with status 200, and failed JSON
+  parsing — surfacing as "Scan failed: Unexpected token '<'…". All `/admin/api/*` paths
+  now always receive a 401 JSON response on auth failure.
+
 ## [0.1.0] - 2026-06-14
 
 First public release.
@@ -59,5 +79,6 @@ First public release.
   firewall clicks. The helper is a runtime no-op on Linux and macOS.
 - The embedded 7z helper binaries are bundled for every supported target.
 
-[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/LeGeRyChEeSe/vrhub-server/releases/tag/v0.1.0
