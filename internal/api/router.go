@@ -671,12 +671,23 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 		if adminHandler != nil {
 			updateCfg := update.DefaultConfig()
 			if cfg != nil {
-				updateCfg.Enabled = cfg.Update.Enabled
+				// Periodic check is always enabled — never copy Enabled=false.
+				// Apply per-field overrides only when the config has non-zero values
+				// so DefaultConfig() fallbacks (Owner, Repo, CheckInterval) stay intact.
+				if cfg.Update.CheckInterval > 0 {
+					updateCfg.CheckInterval = cfg.Update.CheckInterval
+				}
+				if cfg.Update.GithubToken != "" {
+					updateCfg.GithubToken = cfg.Update.GithubToken
+				}
+				if cfg.Update.Owner != "" {
+					updateCfg.Owner = cfg.Update.Owner
+				}
+				if cfg.Update.Repo != "" {
+					updateCfg.Repo = cfg.Update.Repo
+				}
 				updateCfg.AutoApply = cfg.Update.AutoApply
-				updateCfg.CheckInterval = cfg.Update.CheckInterval
-				updateCfg.GithubToken = cfg.Update.GithubToken
-				updateCfg.Owner = cfg.Update.Owner
-				updateCfg.Repo = cfg.Update.Repo
+				updateCfg.AutoRestart = cfg.Update.AutoRestart
 			}
 			updateHandler := NewUpdateHandler(updateCfg, dataDir)
 			// Story 9.1 (B1): expose updateHandler to the deferred
@@ -686,6 +697,8 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			protectedRouter.Get("/api/update/status", updateHandler.HandleUpdateStatusGET)
 			protectedRouter.Post("/api/update/apply", updateHandler.HandleUpdateApplyPOST)
 			protectedRouter.Post("/api/update/reset", updateHandler.HandleUpdateResetPOST)
+			protectedRouter.Post("/api/update/restart", updateHandler.HandleUpdateRestartPOST)
+			protectedRouter.Get("/api/update/changelog", updateHandler.HandleChangelogGET)
 
 			// R6-CSRF-LOGOUT resolution (Story 6-3): wrap the update
 			// endpoints with the CSRF middleware too. (logout endpoint
@@ -868,12 +881,14 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 	// Serve static assets from embedded files (not protected).
 	r.Get("/static/admin.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		w.Write(ui.AdminCSS())
 	})
 
 	r.Get("/static/admin.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		w.Write(ui.AdminJS())
 	})

@@ -129,8 +129,8 @@ func (h *AdminHandler) HandleScriptsConfigPUT(w http.ResponseWriter, r *http.Req
 	newCfg := *cfg
 	newCfg.Server.Host = req.Server.Host
 	newCfg.Server.Port = req.Server.Port
-	newCfg.Update.Enabled = req.Update.Enabled
 	newCfg.Update.AutoApply = req.Update.AutoApply
+	newCfg.Update.AutoRestart = req.Update.AutoRestart
 	if req.Metadata.RefreshInterval != "" {
 		// R13-P13: reject malformed duration.
 		d, err := parseDurationStrict(req.Metadata.RefreshInterval)

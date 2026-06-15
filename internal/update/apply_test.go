@@ -222,8 +222,8 @@ func TestApplyConfig_Default(t *testing.T) {
 	if cfg.DataDir != "/test/data" {
 		t.Errorf("DefaultApplyConfig DataDir = %q, want %q", cfg.DataDir, "/test/data")
 	}
-	if cfg.AutoApply != false {
-		t.Error("DefaultApplyConfig AutoApply should be false")
+	if cfg.AutoApply != true {
+		t.Error("DefaultApplyConfig AutoApply should be true (auto-update enabled by default)")
 	}
 	if cfg.AutoBackup != true {
 		t.Error("DefaultApplyConfig AutoBackup should be true")
@@ -1315,6 +1315,7 @@ func TestDownloadAndApply_EndToEnd(t *testing.T) {
 			MaxBackups:  5,
 			DownloadURL: ts.URL + "/asset.zip",
 			Version:     version,
+			AutoRestart: true, // test the auto-restart path
 		},
 		httpClient: ts.Client(),
 		getExePath: func() (string, error) { return exePath, nil },

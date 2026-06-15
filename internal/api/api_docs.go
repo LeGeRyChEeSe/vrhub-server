@@ -144,6 +144,17 @@ var endpointCatalog = []EndpointDoc{
 		Description: "Reset the update state machine (clear stuck Running/Failed).",
 		ExampleCurl: `curl -b cookies.txt -X POST http://HOST:PORT/admin/api/update/reset`,
 	},
+	{
+		Method: "POST", Path: "/admin/api/update/restart", Auth: "session",
+		Description: "Trigger an immediate server restart after a staged update (restart-pending state).",
+		ExampleCurl: `curl -b cookies.txt -X POST http://HOST:PORT/admin/api/update/restart`,
+	},
+	{
+		Method: "GET", Path: "/admin/api/update/changelog", Auth: "session",
+		Description:    "Fetch the last GitHub releases for the configured repo (tag, body, html_url).",
+		ResponseSchema: `{"data": [{"tag": "v0.1.2", "version": "0.1.2", "body": "...", "html_url": "..."}]}`,
+		ExampleCurl:    `curl -b cookies.txt http://HOST:PORT/admin/api/update/changelog`,
+	},
 
 	// ----- Settings (Story 6.3, session-protected) -----
 	{

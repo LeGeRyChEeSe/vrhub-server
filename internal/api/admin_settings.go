@@ -43,13 +43,11 @@ type settingsUpdateRequest struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	// Update block extended in M-01 (review 2026-06-11): the form
-	// now exposes check_interval, github_token, owner, repo alongside
-	// the previously-supported enabled + auto_apply. Empty strings
-	// are ignored (the server preserves the current value).
+	// Update block: auto_apply, auto_restart, check_interval, github_token, owner, repo.
+	// The enabled field is intentionally absent — update checking is always on.
 	Update struct {
-		Enabled       bool   `json:"enabled"`
 		AutoApply     bool   `json:"auto_apply"`
+		AutoRestart   bool   `json:"auto_restart"`
 		CheckInterval string `json:"check_interval"`
 		GithubToken   string `json:"github_token"`
 		Owner         string `json:"owner"`
@@ -304,8 +302,8 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 	newCfg := *cfg // value copy
 	newCfg.Server.Host = req.Server.Host
 	newCfg.Server.Port = req.Server.Port
-	newCfg.Update.Enabled = req.Update.Enabled
 	newCfg.Update.AutoApply = req.Update.AutoApply
+	newCfg.Update.AutoRestart = req.Update.AutoRestart
 	// M-01 (review 2026-06-11): apply the four new update fields
 	// when present in the payload. Empty strings preserve the
 	// current value (matches the metadata block's behavior below).
@@ -392,8 +390,8 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 	// R13-P11: only push to the update checker if update-related
 	// fields actually changed. Avoids noise + DoS amplifier.
 	if h.UpdateConfigPusher != nil &&
-		(newCfg.Update.Enabled != cfg.Update.Enabled ||
-			newCfg.Update.AutoApply != cfg.Update.AutoApply ||
+		(newCfg.Update.AutoApply != cfg.Update.AutoApply ||
+			newCfg.Update.AutoRestart != cfg.Update.AutoRestart ||
 			newCfg.Update.CheckInterval != cfg.Update.CheckInterval ||
 			newCfg.Update.GithubToken != cfg.Update.GithubToken ||
 			newCfg.Update.Owner != cfg.Update.Owner ||
@@ -404,7 +402,8 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 	vlog.Get().Info().
 		Str("host", newCfg.Server.Host).
 		Int("port", newCfg.Server.Port).
-		Bool("update_enabled", newCfg.Update.Enabled).
+		Bool("auto_apply", newCfg.Update.AutoApply).
+		Bool("auto_restart", newCfg.Update.AutoRestart).
 		Str("rebind_status", rebindStatus).
 		Msg("settings saved")
 
@@ -415,8 +414,8 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 				"port": newCfg.Server.Port,
 			},
 			"update": map[string]interface{}{
-				"enabled":    newCfg.Update.Enabled,
-				"auto_apply": newCfg.Update.AutoApply,
+				"auto_apply":   newCfg.Update.AutoApply,
+				"auto_restart": newCfg.Update.AutoRestart,
 			},
 			"rebind_status": rebindStatus,
 			"message":       "Settings saved successfully",

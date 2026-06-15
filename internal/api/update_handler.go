@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/log"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/update"
@@ -15,9 +17,10 @@ import (
 type UpdateState int32
 
 const (
-	UpdateStateIdle    UpdateState = 0 // No update in progress
-	UpdateStateRunning UpdateState = 1 // Download and apply is running
-	UpdateStateFailed  UpdateState = 2 // Update failed, operator can retry
+	UpdateStateIdle           UpdateState = 0 // No update in progress
+	UpdateStateRunning        UpdateState = 1 // Download and apply is running
+	UpdateStateFailed         UpdateState = 2 // Update failed, operator can retry
+	UpdateStateRestartPending UpdateState = 3 // Binary staged; waiting for explicit restart
 )
 
 // String returns a human-readable representation of the update state.
@@ -29,10 +32,16 @@ func (s UpdateState) String() string {
 		return "running"
 	case UpdateStateFailed:
 		return "failed"
+	case UpdateStateRestartPending:
+		return "restart-pending"
 	default:
 		return "unknown"
 	}
 }
+
+// changelogTTL is the minimum time between live GitHub release fetches.
+// Prevents burning the 60 req/h unauthenticated rate limit during testing.
+const changelogTTL = 5 * time.Minute
 
 // UpdateHandler handles update-related API endpoints.
 type UpdateHandler struct {
@@ -50,6 +59,11 @@ type UpdateHandler struct {
 	// un-interruptible — HandleUpdateResetPOST could flip the
 	// state atomic to Failed but the goroutine kept downloading.
 	applyCancel atomic.Pointer[context.CancelFunc]
+
+	// changelog cache — avoids hitting the GitHub API on every navigation.
+	changelogMu     sync.Mutex
+	changelogCache  []update.ReleaseInfo
+	changelogExpiry time.Time
 }
 
 // NewUpdateHandler creates a new UpdateHandler.
@@ -64,24 +78,30 @@ func NewUpdateHandler(cfg update.Config, dataDir string) *UpdateHandler {
 // HandleUpdateStatusGET handles GET /admin/api/update/status.
 // Returns the cached update check results from the global checker plus the current
 // update state machine value. The state field is required for the JS polling logic
-// in admin.js to detect transitions (running vs failed vs idle).
+// in admin.js to detect transitions (running vs failed vs idle vs restart-pending).
 func (h *UpdateHandler) HandleUpdateStatusGET(w http.ResponseWriter, r *http.Request) {
 	checker := update.GetGlobalChecker()
 
 	var available bool
-	var currentVersion, latestVersion string
+	var currentVersion, latestVersion, releaseNotes string
+	var restartPending bool
 
+	currentVersion = update.CurrentVersion.String()
 	if checker != nil {
 		result := checker.GetResult()
 		if result != nil {
 			available = result.VersionAvailable
 			latestVersion = result.LatestVersion
+			releaseNotes = result.ReleaseNotes
+			restartPending = result.RestartPending
 		}
-		currentVersion = update.CurrentVersion.String()
-	} else {
-		available = false
-		currentVersion = update.CurrentVersion.String()
-		latestVersion = ""
+	}
+
+	// If the handler's own state machine is restart-pending (manual apply path),
+	// propagate that to the response even if the checker doesn't know yet.
+	handlerState := UpdateState(h.state.Load())
+	if handlerState == UpdateStateRestartPending {
+		restartPending = true
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -89,8 +109,11 @@ func (h *UpdateHandler) HandleUpdateStatusGET(w http.ResponseWriter, r *http.Req
 			"available":      available,
 			"currentVersion": currentVersion,
 			"latestVersion":  latestVersion,
+			"releaseNotes":   releaseNotes,
 			"autoApply":      h.UpdateConfig.AutoApply,
-			"updateState":    UpdateState(h.state.Load()).String(),
+			"autoRestart":    h.UpdateConfig.AutoRestart,
+			"updateState":    handlerState.String(),
+			"restartPending": restartPending,
 		},
 	})
 }
@@ -194,6 +217,7 @@ func (h *UpdateHandler) HandleUpdateApplyPOST(w http.ResponseWriter, r *http.Req
 			AutoApply:   h.UpdateConfig.AutoApply,
 			AutoBackup:  true,
 			DownloadURL: downloadURL,
+			AutoRestart: h.UpdateConfig.AutoRestart,
 			// S-05: pin the version the operator saw. Auto-apply
 			// does this too (checker.go:288); the manual path
 			// previously didn't, so the staged zip file had a
@@ -204,8 +228,13 @@ func (h *UpdateHandler) HandleUpdateApplyPOST(w http.ResponseWriter, r *http.Req
 
 		ctx := applyCtx
 		if err := applicator.DownloadAndApply(ctx); err != nil {
-			log.Get().Error().Err(err).Msg("update apply failed")
-			h.state.CompareAndSwap(int32(UpdateStateRunning), int32(UpdateStateFailed))
+			if err == update.ErrRestartPending {
+				// Binary staged; waiting for explicit restart from operator.
+				h.state.CompareAndSwap(int32(UpdateStateRunning), int32(UpdateStateRestartPending))
+			} else {
+				log.Get().Error().Err(err).Msg("update apply failed")
+				h.state.CompareAndSwap(int32(UpdateStateRunning), int32(UpdateStateFailed))
+			}
 		} else {
 			// DownloadAndApply calls os.Exit(0) on success to restart the server.
 			// If it returns normally (test path, future hot-update), transition to Idle
@@ -314,4 +343,95 @@ func UpdateStatusFromConfig(cfg *types.Config, checkerResult *update.CheckResult
 		"latestVersion":  latestVersion,
 		"autoApply":      autoApply,
 	}
+}
+
+// HandleUpdateRestartPOST handles POST /admin/api/update/restart.
+// Triggers an immediate process restart by re-execing the current binary.
+// Only accepted when the update state is restart-pending.
+func (h *UpdateHandler) HandleUpdateRestartPOST(w http.ResponseWriter, r *http.Request) {
+	current := UpdateState(h.state.Load())
+
+	// Also accept if the checker reports restart-pending (auto-apply path).
+	checkerPending := false
+	if checker := update.GetGlobalChecker(); checker != nil {
+		if res := checker.GetResult(); res != nil {
+			checkerPending = res.RestartPending
+		}
+	}
+
+	if current != UpdateStateRestartPending && !checkerPending {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"data": map[string]string{
+				"message":     "No staged update — restart not available",
+				"updateState": current.String(),
+			},
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"data": map[string]string{
+			"message": "Restarting server now…",
+		},
+	})
+
+	// Flush response before exiting.
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	if err := update.TriggerRestart(); err != nil {
+		log.Get().Error().Err(err).Msg("update restart: TriggerRestart failed")
+	}
+}
+
+// HandleChangelogGET handles GET /admin/api/update/changelog.
+// Returns the last 10 GitHub releases. Results are cached for changelogTTL
+// (5 min) to avoid burning the unauthenticated rate limit (60 req/h) during
+// normal use. A forced refresh can be triggered by the checker on its own
+// schedule; this endpoint only re-fetches when the cache is cold or expired.
+func (h *UpdateHandler) HandleChangelogGET(w http.ResponseWriter, r *http.Request) {
+	h.changelogMu.Lock()
+	if time.Now().Before(h.changelogExpiry) && h.changelogCache != nil {
+		releases := h.changelogCache
+		h.changelogMu.Unlock()
+		h.writeChangelogJSON(w, releases)
+		return
+	}
+	h.changelogMu.Unlock()
+
+	releases, err := update.FetchReleases(r.Context(), h.UpdateConfig)
+	if err != nil {
+		log.Get().Warn().Err(err).Msg("changelog: failed to fetch GitHub releases")
+		// Return stale cache if available rather than an empty list.
+		h.changelogMu.Lock()
+		stale := h.changelogCache
+		h.changelogMu.Unlock()
+		if stale != nil {
+			h.writeChangelogJSON(w, stale)
+		} else {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"data": []interface{}{}})
+		}
+		return
+	}
+
+	h.changelogMu.Lock()
+	h.changelogCache = releases
+	h.changelogExpiry = time.Now().Add(changelogTTL)
+	h.changelogMu.Unlock()
+
+	h.writeChangelogJSON(w, releases)
+}
+
+func (h *UpdateHandler) writeChangelogJSON(w http.ResponseWriter, releases []update.ReleaseInfo) {
+	items := make([]map[string]string, 0, len(releases))
+	for _, rel := range releases {
+		items = append(items, map[string]string{
+			"tag":      rel.TagName,
+			"version":  rel.Version,
+			"body":     rel.Body,
+			"html_url": rel.HTMLURL,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"data": items})
 }

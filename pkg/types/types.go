@@ -79,6 +79,7 @@ type UpdateConfig struct {
 	Enabled       bool          `toml:"enabled"`
 	CheckInterval time.Duration `toml:"check-interval"`
 	AutoApply     bool          `toml:"auto-apply"`
+	AutoRestart   bool          `toml:"auto-restart"`
 	GithubToken   string        `toml:"github-token"`
 	Owner         string        `toml:"owner"`
 	Repo          string        `toml:"repo"`

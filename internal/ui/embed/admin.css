@@ -45,6 +45,7 @@
     --success: #6ab070;
     --error: #c05050;
     --warning: #d49a4a;
+    --accent-update: #f59e0b;
 
     /* Spacing */
     --space-1: 0.25rem;
@@ -202,6 +203,130 @@ body {
 
 .update-banner-btn:hover {
     transform: scale(1.05);
+}
+
+/* Update card (amber accent) */
+.update-card {
+    border: 1px solid var(--accent-update);
+    background: color-mix(in srgb, var(--accent-update) 8%, var(--surface));
+}
+
+.update-card .card-header {
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-update) 30%, transparent);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+}
+
+.update-card .card-title {
+    color: var(--accent-update);
+}
+
+.update-card-changelog {
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding-right: var(--space-2);
+}
+
+/* Badge variant for update highlight */
+.badge-update {
+    background: var(--accent-update);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+/* Michel compact client-setup card rows */
+.michel-client-row {
+    margin-bottom: var(--space-2);
+}
+
+.michel-client-label {
+    display: block;
+    font-size: 0.78rem;
+    margin-bottom: var(--space-1);
+}
+
+.michel-client-section-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 var(--space-2);
+}
+
+.michel-client-value-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.michel-client-input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+}
+
+.michel-client-btn {
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-3);
+    font-size: 0.8rem;
+}
+
+/* Changelog list */
+.changelog-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.changelog-entry {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: var(--space-4);
+}
+
+.changelog-entry:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.changelog-entry-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-1);
+}
+
+.changelog-entry-body h3,
+.changelog-entry-body h4,
+.changelog-entry-body h5 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: var(--space-2) 0 var(--space-1);
+}
+.changelog-entry-body ul {
+    margin: var(--space-1) 0 var(--space-2) var(--space-4);
+    padding: 0;
+    list-style: disc;
+}
+.changelog-entry-body li {
+    margin-bottom: var(--space-1);
+}
+.changelog-entry-body p {
+    margin: var(--space-1) 0;
+}
+.changelog-entry-body code {
+    background: var(--surface-raised, rgba(0,0,0,.06));
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: monospace;
+    font-size: 0.8em;
 }
 
 /* Layout — default (fallback for no mode class) */
@@ -1021,6 +1146,7 @@ body[data-route="api-docs"] #section-api-docs,
 body[data-route="monitoring"] #section-monitoring,
 body[data-route="stats"] #section-stats,
 body[data-route="client-setup"] #section-client-setup,
+body[data-route="updates"] #section-updates,
 body[data-route="power-required"] #section-power-required {
     display: block;
 }

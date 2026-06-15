@@ -152,6 +152,8 @@ func main() {
 		if cfg.Update.Repo != "" {
 			updateCfg.Repo = cfg.Update.Repo
 		}
+		updateCfg.AutoApply = cfg.Update.AutoApply
+		updateCfg.AutoRestart = cfg.Update.AutoRestart
 		updateChecker = update.NewChecker(updateCfg, update.CurrentVersion)
 
 		// Create applicator for auto-apply (if enabled).
@@ -159,12 +161,15 @@ func main() {
 		if cfg.Update.AutoApply {
 			applyCfg := update.DefaultApplyConfig(dataDir)
 			applyCfg.AutoBackup = true
+			applyCfg.AutoRestart = cfg.Update.AutoRestart
 			updateApplicator = update.NewApplicator(applyCfg)
 			updateChecker.SetApplicator(updateApplicator)
 			vlog.Get().Info().Msg("Update auto-apply enabled")
 		}
 
 		updateChecker.Start(context.Background())
+		// Register as the package-level global so the admin API can read results.
+		update.SetGlobalChecker(updateChecker)
 		vlog.Get().Info().Msg("Update checker started")
 	}
 

@@ -1,6 +1,14 @@
 package update
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrRestartPending is returned by DownloadAndApply when the binary was staged
+// successfully but AutoRestart is false. The caller should transition the update
+// state to RestartPending and wait for an explicit restart request.
+var ErrRestartPending = errors.New("update: binary staged, explicit restart required")
 
 // ReleaseInfo represents a GitHub release.
 type ReleaseInfo struct {
@@ -8,6 +16,7 @@ type ReleaseInfo struct {
 	Version string  `json:"version"`
 	HTMLURL string  `json:"html_url"`
 	Assets  []Asset `json:"assets"`
+	Body    string  `json:"body"`
 }
 
 // Asset represents a release asset (binary download).
@@ -22,6 +31,8 @@ type CheckResult struct {
 	LatestVersion    string
 	DownloadURL      string
 	CheckedAt        time.Time
+	ReleaseNotes     string
+	RestartPending   bool
 }
 
 // Version represents a parsed semantic version.

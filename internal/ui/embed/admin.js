@@ -139,6 +139,9 @@ function loadMichelWidgets() {
     // Game count widget
     fetchGameCount();
 
+    // Compact client setup card
+    loadMichelClientSetupCard();
+
     // Password toggle — bind once per element (idempotent on hot reload).
     // The handler is wired here (Michel-only widget) so the dashboard's
     // "Afficher"/"Masquer" link actually does something. Story 9.6 / B6.3.
@@ -241,15 +244,16 @@ function fetchConfig() {
             if (pwdVisible && d.archive_password) {
                 pwdVisible.textContent = d.archive_password;
             }
+
+            // Also populate the Michel "Connecter un client" card with
+            // the same data — avoids a second fetch.
+            _renderClientSetupCard(d);
         })
         .catch(function(err) {
-            // Not silent any more (was a 404-swallowing black hole
-            // in the pre-9.6 code). Operators with __VRHUB_DEBUG__
-            // see the error; production logs go to the server
-            // (which audit-logs the JSON read at Warn level).
             if (window.__VRHUB_DEBUG__) {
                 console.warn('fetchConfig: failed to load /admin/api/admin/settings', err);
             }
+            _renderClientSetupCardError();
         });
 }
 
@@ -768,6 +772,7 @@ var ROUTE_TO_HANDLER = {
     'monitoring':      handleRouteMonitoring,
     'stats':           handleRouteStats,
     'client-setup':    handleRouteClientSetup,
+    'updates':         handleRouteUpdates,
     'power-required':  handleRoutePowerRequired
 };
 
@@ -853,8 +858,243 @@ function handleRouteDashboard() {
     // Power fetchPowerConfig + fetchPowerStats).
     if (getMode() === 'michel') {
         loadMichelWidgets();
+        fetchChangelog(); // populate Michel changelog card at bottom of dashboard
     } else {
         loadPowerUserWidgets();
+    }
+}
+
+function handleRouteUpdates() {
+    fetchChangelog();
+    fetchUpdateStatus(); // refresh update state when navigating to #/updates
+}
+
+// Client setup card is populated by fetchConfig() on success.
+// loadMichelClientSetupCard is kept as a safety net: it runs its own
+// fetch ONLY if fetchConfig() already returned early (baseUriEl missing).
+// In practice baseUriEl is always present, so this is a no-op.
+var _clientSetupCardRendered = false;
+function loadMichelClientSetupCard() {
+    // fetchConfig() will call _renderClientSetupCard() when it completes.
+    // We defer 300 ms and only self-fetch if the card is still showing
+    // the initial loading placeholder (meaning fetchConfig didn't run).
+    setTimeout(function() {
+        var container = document.getElementById('michel-client-setup-content');
+        if (!container) return;
+        if (_clientSetupCardRendered) return;
+        // fetchConfig didn't populate the card — fetch independently.
+        fetch('/admin/api/admin/settings', {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(data) { _renderClientSetupCard((data && data.data) || {}); })
+        .catch(function() { _renderClientSetupCardError(); });
+    }, 300);
+}
+
+// Render the Michel "Connecter un client" card from already-fetched settings data.
+// Called by fetchConfig() on success so there is no duplicate request.
+function _renderClientSetupCard(d) {
+    var container = document.getElementById('michel-client-setup-content');
+    if (!container) return;
+    _clientSetupCardRendered = true;
+
+    var baseUri = (d && d.base_uri) || '';
+    var configJsonURL = baseUri ? baseUri + 'config.json' : '';
+    var pwd = (d && d.archive_password) || '';
+    container.innerHTML = '';
+
+    function makeRow(labelText, value, masked) {
+        var wrap = document.createElement('div');
+        wrap.className = 'michel-client-row';
+        var lbl = document.createElement('span');
+        lbl.className = 'michel-client-label text-muted';
+        lbl.textContent = labelText;
+        wrap.appendChild(lbl);
+        var row = document.createElement('div');
+        row.className = 'michel-client-value-row';
+        var inp = document.createElement('input');
+        inp.type = masked ? 'password' : 'text';
+        inp.readOnly = true;
+        inp.value = value;
+        inp.className = 'form-input michel-client-input';
+        row.appendChild(inp);
+        if (masked) {
+            var revealBtn = document.createElement('button');
+            revealBtn.type = 'button';
+            revealBtn.className = 'btn btn-secondary michel-client-btn';
+            revealBtn.textContent = '👁';
+            revealBtn.setAttribute('aria-pressed', 'false');
+            revealBtn.addEventListener('click', function() {
+                var shown = inp.type === 'text';
+                inp.type = shown ? 'password' : 'text';
+                revealBtn.setAttribute('aria-pressed', String(!shown));
+            });
+            row.appendChild(revealBtn);
+        }
+        var copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-primary michel-client-btn';
+        copyBtn.textContent = i18n('copy_btn', 'Copy');
+        copyBtn.addEventListener('click', function() {
+            copyToClipboard(value,
+                function() { showInlineNotification(i18n('header_copied', 'Copié')); },
+                function() { showInlineNotification(i18n('header_copy_failed', 'Échec')); }
+            );
+        });
+        row.appendChild(copyBtn);
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    var recTitle = document.createElement('p');
+    recTitle.className = 'michel-client-section-label text-muted';
+    recTitle.textContent = i18n('client_setup_recommended', 'Méthode recommandée');
+    container.appendChild(recTitle);
+    container.appendChild(makeRow('config.json URL', configJsonURL, false));
+
+    var manTitle = document.createElement('p');
+    manTitle.className = 'michel-client-section-label text-muted';
+    manTitle.style.marginTop = 'var(--space-4)';
+    manTitle.textContent = i18n('client_setup_manual', 'Méthode manuelle');
+    container.appendChild(manTitle);
+    container.appendChild(makeRow(i18n('client_setup_base_uri', 'URI de base'), baseUri, false));
+    container.appendChild(makeRow(i18n('password_label', 'Mot de passe'), pwd, true));
+}
+
+function _renderClientSetupCardError() {
+    var container = document.getElementById('michel-client-setup-content');
+    if (container) {
+        container.innerHTML = '<p class="text-muted">' + escapeHTML(i18n('client_setup_error', 'Impossible de charger la configuration.')) + '</p>';
+    }
+}
+
+// Fetch the last releases from GitHub and render changelog cards.
+async function fetchChangelog() {
+    var michelContent = document.getElementById('michel-changelog-content');
+    var powerContent = document.getElementById('power-changelog-content');
+    try {
+        var r = await fetch('/admin/api/update/changelog', {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var json = await r.json();
+        var releases = json.data || [];
+        var html = renderChangelogHTML(releases);
+        if (michelContent) michelContent.innerHTML = html;
+        if (powerContent) powerContent.innerHTML = html;
+    } catch(e) {
+        var errHtml = '<p class="text-muted">' + i18n('changelog_error', 'Impossible de charger le changelog.') + '</p>';
+        if (michelContent) michelContent.innerHTML = errHtml;
+        if (powerContent) powerContent.innerHTML = errHtml;
+    }
+}
+
+function renderChangelogHTML(releases) {
+    if (!releases || releases.length === 0) {
+        return '<p class="text-muted">' + i18n('changelog_empty', 'Aucune release trouvée.') + '</p>';
+    }
+    var currentVer = (updateStatus && updateStatus.currentVersion) || '';
+    var latestVer = (updateStatus && updateStatus.latestVersion) || '';
+    var out = '<div class="changelog-list">';
+    for (var i = 0; i < releases.length; i++) {
+        var rel = releases[i];
+        var tag = rel.tag || '';
+        var ver = rel.version || tag;
+        var isInstalled = ver === currentVer || tag === currentVer || ('v' + ver) === currentVer || ('v' + currentVer) === tag;
+        var isLatest = ver === latestVer || tag === latestVer || ('v' + ver) === latestVer || ('v' + latestVer) === tag;
+        out += '<div class="changelog-entry">';
+        out += '<div class="changelog-entry-header">';
+        out += '<strong>' + escapeHTML(tag || ver) + '</strong>';
+        if (isLatest) out += ' <span class="badge-pill badge-update">' + i18n('update_latest_badge', 'dernier') + '</span>';
+        if (isInstalled) out += ' <span class="badge-pill badge-primary">' + i18n('update_installed_badge', 'installé') + '</span>';
+        if (rel.html_url) {
+            out += ' <a href="' + escapeHTML(rel.html_url) + '" target="_blank" rel="noopener noreferrer" class="text-muted" style="font-size:0.8rem;">GitHub ↗</a>';
+        }
+        out += '</div>';
+        if (rel.body) {
+            out += '<div class="changelog-entry-body text-muted" style="font-size:0.85rem;margin-top:var(--space-2);">' + renderMarkdown(rel.body) + '</div>';
+        }
+        out += '</div>';
+    }
+    out += '</div>';
+    return out;
+}
+
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Apply inline markdown transforms to already-HTML-escaped text.
+// Supports **bold**, *italic*, `code`, and [text](https://...) links.
+function _inlineMd(text) {
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Only allow http/https links to prevent javascript: XSS
+    text = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)]*)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return text;
+}
+
+// Convert a GitHub-flavoured markdown string to safe HTML.
+// Handles ATX headings (#/##/###), unordered lists (-/*), paragraphs,
+// and delegates inline markup to _inlineMd().
+function renderMarkdown(raw) {
+    if (!raw) return '';
+    var lines = raw.split('\n');
+    var out = '';
+    var inList = false;
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var trimmed = line.trimStart ? line.trimStart() : line.replace(/^\s+/, '');
+        if (/^### /.test(trimmed)) {
+            if (inList) { out += '</ul>'; inList = false; }
+            out += '<h5>' + _inlineMd(escapeHTML(trimmed.slice(4))) + '</h5>';
+        } else if (/^## /.test(trimmed)) {
+            if (inList) { out += '</ul>'; inList = false; }
+            out += '<h4>' + _inlineMd(escapeHTML(trimmed.slice(3))) + '</h4>';
+        } else if (/^# /.test(trimmed)) {
+            if (inList) { out += '</ul>'; inList = false; }
+            out += '<h3>' + _inlineMd(escapeHTML(trimmed.slice(2))) + '</h3>';
+        } else if (/^[-*] /.test(trimmed)) {
+            if (!inList) { out += '<ul>'; inList = true; }
+            out += '<li>' + _inlineMd(escapeHTML(trimmed.slice(2))) + '</li>';
+        } else if (trimmed === '') {
+            if (inList) { out += '</ul>'; inList = false; }
+        } else {
+            if (inList) { out += '</ul>'; inList = false; }
+            out += '<p>' + _inlineMd(escapeHTML(line)) + '</p>';
+        }
+    }
+    if (inList) out += '</ul>';
+    return out;
+}
+
+// Safe clipboard helper — uses modern Clipboard API when available
+// (requires HTTPS or localhost), falls back to execCommand for plain-HTTP
+// LAN deployments. onSuccess / onFail are zero-argument callbacks.
+function copyToClipboard(text, onSuccess, onFail) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(onSuccess, onFail);
+    } else {
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            onSuccess();
+        } catch(e) { onFail(); }
     }
 }
 
@@ -1079,13 +1319,13 @@ function renderSettingsForm(container, d) {
     updHeader.style.marginTop = 'var(--space-6)';
     form.appendChild(updHeader);
 
-    // Update enabled
-    var updField = makeField('cfg-update-enabled', i18n('config_update_enabled'), 'checkbox', d.update && d.update.enabled, { defaultValue: false, helpKey: 'config_update_enabled_help' });
-    form.appendChild(updField.group);
-
-    // Auto-apply
-    var autoField = makeField('cfg-auto-apply', i18n('config_auto_apply'), 'checkbox', d.update && d.update.auto_apply, { defaultValue: false, helpKey: 'config_auto_apply_help' });
+    // Auto-apply (update check is always enabled; only auto_apply and auto_restart are configurable)
+    var autoField = makeField('cfg-auto-apply', i18n('config_auto_apply'), 'checkbox', d.update && d.update.auto_apply, { defaultValue: true, helpKey: 'config_auto_apply_help' });
     form.appendChild(autoField.group);
+
+    // Auto-restart
+    var autoRestartField = makeField('cfg-auto-restart', i18n('config_auto_restart'), 'checkbox', d.update && d.update.auto_restart, { defaultValue: false, helpKey: 'config_auto_restart_help' });
+    form.appendChild(autoRestartField.group);
 
     // Advanced update fields (M-01)
     var updCheckValue = '';
@@ -1237,11 +1477,10 @@ function renderSettingsForm(container, d) {
                 }
                 apiValueInput.value = pwd;
                 apiValueInput.type = 'text';
-                // Copy to clipboard for convenience.
-                try {
-                    navigator.clipboard.writeText(pwd);
-                    showInlineNotification(i18n('api_key_copied'));
-                } catch(e) { /* no-op */ }
+                copyToClipboard(pwd,
+                    function() { showInlineNotification(i18n('api_key_copied', 'Clé copiée')); },
+                    function() { /* clipboard unavailable — key is visible in the field */ }
+                );
             })
             .catch(function(err) {
                 showInlineNotification('Reveal failed: ' + (err && err.message || 'unknown'));
@@ -1273,10 +1512,10 @@ function renderSettingsForm(container, d) {
                 apiValueInput.value = pwd;
                 apiValueInput.type = 'text';
                 alert(i18n('api_key_save_warning'));
-                try {
-                    navigator.clipboard.writeText(pwd);
-                    showInlineNotification(i18n('api_key_copied'));
-                } catch(e) { /* no-op */ }
+                copyToClipboard(pwd,
+                    function() { showInlineNotification(i18n('api_key_copied', 'Clé copiée')); },
+                    function() { /* clipboard unavailable — key is visible in the field */ }
+                );
             })
             .catch(function(err) {
                 showInlineNotification('Regenerate failed: ' + (err && err.message || 'unknown'));
@@ -1296,8 +1535,8 @@ function renderSettingsForm(container, d) {
                 port: parseInt(portField.input.value, 10)
             },
             update: {
-                enabled: updField.input.checked,
                 auto_apply: autoField.input.checked,
+                auto_restart: autoRestartField.input.checked,
                 check_interval: updCheckField.input.value.trim(),
                 github_token: updTokenField.input.value,
                 owner: updOwnerField.input.value.trim(),
@@ -1419,14 +1658,12 @@ function handleRouteClientSetup() {
             var recCopyBtn = document.createElement('button');
             recCopyBtn.type = 'button';
             recCopyBtn.className = 'btn btn-primary';
-            recCopyBtn.textContent = i18n('header_copied', 'Copy');
+            recCopyBtn.textContent = i18n('copy_btn', 'Copy');
             recCopyBtn.addEventListener('click', function() {
-                try {
-                    navigator.clipboard.writeText(configJsonURL);
-                    showInlineNotification(i18n('header_copied'));
-                } catch(e) {
-                    showInlineNotification(i18n('header_copy_failed'));
-                }
+                copyToClipboard(configJsonURL,
+                    function() { showInlineNotification(i18n('header_copied', 'Copié')); },
+                    function() { showInlineNotification(i18n('header_copy_failed', 'Échec')); }
+                );
             });
             recRow.appendChild(recCopyBtn);
             recCard.appendChild(recRow);
@@ -1458,12 +1695,12 @@ function handleRouteClientSetup() {
             var manUriCopyBtn = document.createElement('button');
             manUriCopyBtn.type = 'button';
             manUriCopyBtn.className = 'btn btn-primary';
-            manUriCopyBtn.textContent = i18n('header_copied');
+            manUriCopyBtn.textContent = i18n('copy_btn', 'Copy');
             manUriCopyBtn.addEventListener('click', function() {
-                try {
-                    navigator.clipboard.writeText(baseUri);
-                    showInlineNotification(i18n('header_copied'));
-                } catch(e) { showInlineNotification(i18n('header_copy_failed')); }
+                copyToClipboard(baseUri,
+                    function() { showInlineNotification(i18n('header_copied', 'Copié')); },
+                    function() { showInlineNotification(i18n('header_copy_failed', 'Échec')); }
+                );
             });
             manUriRow.appendChild(manUriCopyBtn);
             manCard.appendChild(manUriRow);
@@ -1502,12 +1739,12 @@ function handleRouteClientSetup() {
             var manPwdCopyBtn = document.createElement('button');
             manPwdCopyBtn.type = 'button';
             manPwdCopyBtn.className = 'btn btn-primary';
-            manPwdCopyBtn.textContent = i18n('header_copied');
+            manPwdCopyBtn.textContent = i18n('copy_btn', 'Copy');
             manPwdCopyBtn.addEventListener('click', function() {
-                try {
-                    navigator.clipboard.writeText(pwd);
-                    showInlineNotification(i18n('header_copied'));
-                } catch(e) { showInlineNotification(i18n('header_copy_failed')); }
+                copyToClipboard(pwd,
+                    function() { showInlineNotification(i18n('header_copied', 'Copié')); },
+                    function() { showInlineNotification(i18n('header_copy_failed', 'Échec')); }
+                );
             });
             manPwdRow.appendChild(manPwdCopyBtn);
             manCard.appendChild(manPwdRow);
@@ -1929,6 +2166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', function() { routeFromHash(); });
 
     fetchUpdateStatus();
+    setInterval(fetchUpdateStatus, 60000);
     setupEventListeners();
     wireRescanButtons();
     // Story X: setupFooterToggle replaced by setupModeSwitch (the
@@ -1981,24 +2219,135 @@ async function fetchUpdateStatus() {
                 available: data.data.available || false,
                 currentVersion: data.data.currentVersion || '',
                 latestVersion: data.data.latestVersion || '',
-                autoApply: data.data.autoApply || false
+                autoApply: data.data.autoApply || false,
+                autoRestart: data.data.autoRestart || false,
+                releaseNotes: data.data.releaseNotes || '',
+                restartPending: data.data.restartPending || false,
+                updateState: data.data.updateState || 'idle'
             };
-            updateBannerDisplay();
+            renderUpdateCard();
         }
     } catch (error) {
         clearTimeout(timeoutId);
     }
 }
 
-// Update banner visibility based on status
-function updateBannerDisplay() {
-    // Show banner only when autoApply === false && available === true
-    if (updateStatus.autoApply === false && updateStatus.available === true) {
-        updateVersion.textContent = 'v' + updateStatus.latestVersion;
-        updateBanner.style.display = 'flex';
-    } else {
-        updateBanner.style.display = 'none';
+// Render update notification cards in Michel dashboard and Power #/updates section.
+function renderUpdateCard() {
+    var showCard = updateStatus.available || updateStatus.restartPending;
+
+    // Legacy top banner — keep visible only when update available but not yet staged.
+    if (updateBanner) {
+        if (updateStatus.available && !updateStatus.restartPending) {
+            if (updateVersion) updateVersion.textContent = 'v' + updateStatus.latestVersion;
+            updateBanner.style.display = 'flex';
+        } else {
+            updateBanner.style.display = 'none';
+        }
     }
+
+    // Michel dashboard update card.
+    var michelCard = document.getElementById('michel-update-card');
+    if (michelCard) {
+        if (showCard) {
+            michelCard.classList.remove('hidden');
+            _fillUpdateCard('michel', updateStatus);
+        } else {
+            michelCard.classList.add('hidden');
+        }
+    }
+
+    // Power #/updates section update card.
+    var powerCard = document.getElementById('power-update-card');
+    if (powerCard) {
+        if (showCard) {
+            powerCard.classList.remove('hidden');
+            _fillUpdateCard('power', updateStatus);
+        } else {
+            powerCard.classList.add('hidden');
+        }
+    }
+}
+
+// Populate a prefix-namespaced update card (michel- or power-).
+function _fillUpdateCard(prefix, status) {
+    var installedBadge = document.getElementById(prefix + '-installed-badge');
+    var latestBadge = document.getElementById(prefix + '-latest-badge');
+    var notes = document.getElementById(prefix + '-update-notes');
+    var actions = document.getElementById(prefix + '-update-actions');
+    var title = document.getElementById(prefix + '-update-card-title');
+
+    if (installedBadge) installedBadge.textContent = status.currentVersion || '';
+    if (latestBadge) latestBadge.textContent = status.latestVersion ? 'v' + status.latestVersion : '';
+    if (notes) notes.innerHTML = renderMarkdown(status.releaseNotes || '');
+
+    if (!actions) return;
+    actions.innerHTML = '';
+
+    if (status.restartPending) {
+        if (title) title.textContent = i18n('update_staged_title', 'Redémarrage requis');
+        var restartBtn = document.createElement('button');
+        restartBtn.type = 'button';
+        restartBtn.className = 'btn btn-primary';
+        restartBtn.textContent = i18n('restart_now_btn', 'Redémarrer maintenant');
+        restartBtn.addEventListener('click', function() { triggerRestart(false); });
+        actions.appendChild(restartBtn);
+
+        var restartAutoBtn = document.createElement('button');
+        restartAutoBtn.type = 'button';
+        restartAutoBtn.className = 'btn btn-secondary';
+        restartAutoBtn.textContent = i18n('restart_no_ask_btn', 'Redémarrer et ne plus demander');
+        restartAutoBtn.addEventListener('click', function() { triggerRestart(true); });
+        actions.appendChild(restartAutoBtn);
+    } else if (status.available) {
+        if (title) title.textContent = i18n('update_available_title', 'Mise à jour disponible');
+        var updateNowBtn = document.createElement('button');
+        updateNowBtn.type = 'button';
+        updateNowBtn.className = 'btn btn-primary';
+        updateNowBtn.textContent = i18n('update_now_btn', 'Mettre à jour');
+        updateNowBtn.addEventListener('click', function() { triggerUpdate(); });
+        actions.appendChild(updateNowBtn);
+    }
+}
+
+// Trigger a server restart. If setAutoRestart=true, first PUT settings
+// to enable auto_restart, then POST /admin/api/update/restart.
+async function triggerRestart(setAutoRestart) {
+    if (setAutoRestart) {
+        try {
+            await fetch('/admin/api/admin/settings', {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCSRFToken()
+                },
+                body: JSON.stringify({ update: { auto_restart: true, auto_apply: updateStatus.autoApply } })
+            });
+        } catch(e) { /* best-effort */ }
+    }
+
+    try {
+        await fetch('/admin/api/update/restart', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-Token': getCSRFToken()
+            }
+        });
+    } catch(e) { /* server went down — expected */ }
+
+    if (restartPage) restartPage.style.display = 'flex';
+    var countdown = 10;
+    var countdownTimer = setInterval(function() {
+        countdown--;
+        if (countdownSpan) countdownSpan.textContent = countdown;
+        if (countdown <= 0) {
+            clearInterval(countdownTimer);
+            location.reload();
+        }
+    }, 1000);
 }
 
 // Story 1.8 follow-up (live session 2026-06-08): logout button.
@@ -2449,6 +2798,7 @@ var I18N_MICHEL = {
     'header_baseuri_title': 'Cliquer pour copier',
     'header_reveal_title': 'Afficher le mot de passe',
     'header_lang_title': "Langue de l'interface",
+    'copy_btn': 'Copier',
     'header_copied': 'Copié',
     'header_copy_failed': 'Échec de la copie',
     'settings_readonly_michel': "Les paramètres sont en lecture seule en mode Michel. Passez en mode Power User pour les modifier.",
@@ -2469,10 +2819,23 @@ var I18N_MICHEL = {
     'config_game_folders': 'Dossiers de jeux',
     'config_game_folders_help': "Chemins absolus vers les dossiers contenant les fichiers APK/OBB. Cliquer 'Rescanner' après modification.",
     'config_add_folder': 'Ajouter un dossier',
-    'config_update_enabled': 'Vérifier les mises à jour',
-    'config_update_enabled_help': 'Vérifier périodiquement les nouvelles versions sur GitHub.',
     'config_auto_apply': 'Appliquer auto les MAJ',
-    'config_auto_apply_help': 'Redémarre le serveur sans confirmation. ATTENTION : coupe les téléchargements en cours.',
+    'config_auto_apply_help': 'Applique automatiquement les nouvelles versions dès détection.',
+    'config_auto_restart': 'Redémarrage automatique',
+    'config_auto_restart_help': 'Redémarre automatiquement après la mise à jour. Par défaut, un redémarrage explicite est demandé.',
+    'update_available_title': 'Mise à jour disponible',
+    'update_staged_title': 'Redémarrage requis',
+    'update_now_btn': 'Mettre à jour',
+    'restart_now_btn': 'Redémarrer maintenant',
+    'restart_no_ask_btn': 'Redémarrer et ne plus demander',
+    'changelog_title': 'Historique des versions',
+    'changelog_loading': 'Chargement…',
+    'changelog_error': 'Impossible de charger le changelog.',
+    'changelog_empty': 'Aucune release trouvée.',
+    'update_latest_badge': 'dernier',
+    'update_installed_badge': 'installé',
+    'nav_updates': 'Mises à jour',
+    'updates_title': 'Mises à jour & Changelog',
     'config_metadata_section': 'Métadonnées',
     'config_metadata_url': 'URL des métadonnées',
     'config_metadata_url_help': "Source du catalogue MetaMetadata. Doit être une URL HTTPS accessible.",
@@ -2523,6 +2886,8 @@ var I18N_MICHEL = {
     'client_setup_step2': '2. Allez dans Paramètres → Serveur',
     'client_setup_step3': '3. Collez l’URL de configuration OU l’adresse du serveur et le mot de passe',
     'client_setup_step4': '4. Validez. Le catalogue de jeux apparaît.',
+    'client_setup_error': 'Impossible de charger la configuration.',
+    'michel_client_title': 'Connecter un client',
     // API key management (M-02)
     'api_key_title': 'Clé API admin',
     'api_key_help': "Cette clé permet à vos scripts d'accéder aux endpoints protégés par X-API-Key. Elle n'est plus affichée après régénération.",
@@ -2650,6 +3015,7 @@ var I18N_POWER = {
     'header_baseuri_title': 'Click to copy',
     'header_reveal_title': 'Show password',
     'header_lang_title': 'Interface language',
+    'copy_btn': 'Copy',
     'header_copied': 'Copied',
     'header_copy_failed': 'Copy failed',
     'settings_readonly_michel': 'Settings are read-only in Michel mode. Switch to Power User to edit them.',
@@ -2669,10 +3035,23 @@ var I18N_POWER = {
     'config_game_folders': 'Game folders',
     'config_game_folders_help': "Absolute paths to directories containing APK/OBB files. Click 'Rescan' after editing.",
     'config_add_folder': 'Add folder',
-    'config_update_enabled': 'Check for updates',
-    'config_update_enabled_help': 'Periodically check GitHub for new releases.',
     'config_auto_apply': 'Auto-apply updates',
-    'config_auto_apply_help': 'Restart the server without confirmation. WARNING: interrupts in-progress downloads.',
+    'config_auto_apply_help': 'Automatically apply new versions as soon as they are detected.',
+    'config_auto_restart': 'Auto-restart',
+    'config_auto_restart_help': 'Automatically restart after applying an update. By default, an explicit restart is required.',
+    'update_available_title': 'Update Available',
+    'update_staged_title': 'Restart Required',
+    'update_now_btn': 'Update Now',
+    'restart_now_btn': 'Restart Now',
+    'restart_no_ask_btn': 'Restart & Never Ask Again',
+    'changelog_title': 'Release History',
+    'changelog_loading': 'Loading…',
+    'changelog_error': 'Failed to load changelog.',
+    'changelog_empty': 'No releases found.',
+    'update_latest_badge': 'latest',
+    'update_installed_badge': 'installed',
+    'nav_updates': 'Updates',
+    'updates_title': 'Updates & Changelog',
     'config_metadata_section': 'Metadata',
     'config_metadata_url': 'Metadata URL',
     'config_metadata_url_help': 'MetaMetadata catalog source. Must be an accessible HTTPS URL.',
@@ -2723,6 +3102,8 @@ var I18N_POWER = {
     'client_setup_step2': '2. Go to Settings → Server',
     'client_setup_step3': '3. Paste the configuration URL OR the server address and password',
     'client_setup_step4': '4. Save. The game catalog appears.',
+    'client_setup_error': 'Failed to load configuration.',
+    'michel_client_title': 'Connect a client',
     // API key management (M-02)
     'api_key_title': 'Admin API key',
     'api_key_help': "This key lets your scripts hit the X-API-Key protected endpoints. It won't be shown again after regeneration.",

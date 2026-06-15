@@ -155,6 +155,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
             <span class="nav-group-label" data-i18n="nav_cat_maintenance">Maintenance</span>
             <a href="#/backup" class="section-nav-link" data-nav-route="backup" data-i18n="nav_backup">Backup</a>
             <a href="#/client-setup" class="section-nav-link" data-nav-route="client-setup" data-i18n="nav_client_setup">Client setup</a>
+            <a href="#/updates" class="section-nav-link" data-nav-route="updates" data-i18n="nav_updates">Updates</a>
         </div>
     </nav>
 
@@ -170,6 +171,18 @@ const adminHTMLTemplate = `<!DOCTYPE html>
             <p data-i18n="welcome_message">Bienvenue dans l'administration de VRHub Server</p>
 
             <!-- Michel-mode widgets (hidden in Power via CSS) -->
+
+            <!-- Update notification card — shown by JS when update available or restart pending -->
+            <div class="card update-card tiltable hidden" id="michel-update-card">
+                <div class="card-header">
+                    <span class="card-title" id="michel-update-card-title" data-i18n="update_available_title">Mise à jour disponible</span>
+                    <span class="badge-pill badge-muted" id="michel-installed-badge"></span>
+                    <span class="badge-pill badge-update" id="michel-latest-badge"></span>
+                </div>
+                <div class="update-card-changelog" id="michel-update-notes"></div>
+                <div class="update-card-actions" id="michel-update-actions" style="margin-top: var(--space-3); display: flex; gap: var(--space-2); flex-wrap: wrap;"></div>
+            </div>
+
             <div class="card status-widget tiltable" id="status-widget">
                 <div class="card-header">
                     <span class="card-title" data-i18n="server_status_label">État du serveur</span>
@@ -219,6 +232,26 @@ const adminHTMLTemplate = `<!DOCTYPE html>
                     <span class="card-title" data-i18n="stats_title">Quick Stats</span>
                 </div>
                 <div class="config-grid" id="stats-grid"></div>
+            </div>
+
+            <!-- Michel compact client setup card -->
+            <div class="card tiltable" id="michel-client-setup-card">
+                <div class="card-header">
+                    <span class="card-title" data-i18n="michel_client_title">Connecter un client</span>
+                </div>
+                <div id="michel-client-setup-content">
+                    <p data-i18n="client_setup_loading">Chargement…</p>
+                </div>
+            </div>
+
+            <!-- Michel changelog history card (always rendered at bottom of dashboard) -->
+            <div class="card tiltable" id="michel-changelog-card">
+                <div class="card-header">
+                    <span class="card-title" data-i18n="changelog_title">Historique des versions</span>
+                </div>
+                <div id="michel-changelog-content">
+                    <p data-i18n="changelog_loading">Chargement…</p>
+                </div>
             </div>
 
             <p class="text-muted mt-4">
@@ -290,6 +323,30 @@ const adminHTMLTemplate = `<!DOCTYPE html>
             <p class="text-muted" data-i18n="stats_intro">Nombre de téléchargements, bande passante et dernier téléchargement par jeu.</p>
             <div id="stats-table" class="card">
                 <p data-i18n="stats_loading">Chargement…</p>
+            </div>
+        </section>
+
+        <!-- Updates & Changelog (accessible in both Michel and Power modes) -->
+        <section data-route="updates" id="section-updates">
+            <h1 data-i18n="updates_title">Mises à jour &amp; Changelog</h1>
+            <!-- Update notification card — shown by JS when update available or restart pending -->
+            <div class="card update-card hidden" id="power-update-card">
+                <div class="card-header">
+                    <span class="card-title" id="power-update-card-title" data-i18n="update_available_title">Mise à jour disponible</span>
+                    <span class="badge-pill badge-muted" id="power-installed-badge"></span>
+                    <span class="badge-pill badge-update" id="power-latest-badge"></span>
+                </div>
+                <div class="update-card-changelog" id="power-update-notes"></div>
+                <div class="update-card-actions" id="power-update-actions" style="margin-top: var(--space-3); display: flex; gap: var(--space-2); flex-wrap: wrap;"></div>
+            </div>
+            <!-- Changelog history -->
+            <div class="card tiltable" id="power-changelog-card">
+                <div class="card-header">
+                    <span class="card-title" data-i18n="changelog_title">Historique des versions</span>
+                </div>
+                <div id="power-changelog-content">
+                    <p data-i18n="changelog_loading">Chargement…</p>
+                </div>
             </div>
         </section>
 

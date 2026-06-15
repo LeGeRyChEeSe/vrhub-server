@@ -65,15 +65,17 @@ type ApplyConfig struct {
 	DownloadURL string
 	ChecksumURL string // optional URL to SHA256 checksum file
 	Version     string
+	AutoRestart bool // when false, stage the binary but return ErrRestartPending instead of restarting
 }
 
 // DefaultApplyConfig returns default apply configuration.
 func DefaultApplyConfig(dataDir string) ApplyConfig {
 	return ApplyConfig{
-		DataDir:    dataDir,
-		AutoApply:  false,
-		AutoBackup: true,
-		MaxBackups: maxAutoBackups,
+		DataDir:     dataDir,
+		AutoApply:   true,
+		AutoBackup:  true,
+		MaxBackups:  maxAutoBackups,
+		AutoRestart: false,
 	}
 }
 
@@ -210,6 +212,20 @@ func (a *Applicator) DownloadAndApply(ctx context.Context) error {
 		}
 	}
 
+	// When AutoRestart is false, skip the restart and signal the caller
+	// that a restart is required. The staged binary is already in place;
+	// the caller is responsible for triggering the restart via TriggerRestart.
+	if !a.config.AutoRestart {
+		// Honor the test seam: if restartFn is set, tests may still want
+		// to verify the staging path ran; call it even when AutoRestart=false
+		// so the test can record what happened. Production restartFn is nil
+		// so this branch is a no-op there.
+		if a.restartFn != nil {
+			_ = a.restartFn()
+		}
+		return ErrRestartPending
+	}
+
 	// Trigger restart (Task 3). The restart hook is overridable for tests;
 	// in production restartFn is nil and we use a.triggerRestart, which does
 	// not return on success (Exec on Unix / os.Exit on Windows).
@@ -222,6 +238,14 @@ func (a *Applicator) DownloadAndApply(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// TriggerRestart re-execs the current process into the currently installed
+// binary. It is safe to call independently of the staging path (e.g. after
+// the operator clicks "Restart Now" in the admin UI). Does not return on success.
+func TriggerRestart() error {
+	a := &Applicator{getExePath: os.Executable}
+	return a.triggerRestart()
 }
 
 // requireHTTPS parses rawURL and rejects anything that is not https://.

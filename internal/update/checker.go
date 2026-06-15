@@ -20,6 +20,7 @@ type Config struct {
 	Enabled       bool          `toml:"enabled"`
 	CheckInterval time.Duration `toml:"check-interval"`
 	AutoApply     bool          `toml:"auto-apply"`
+	AutoRestart   bool          `toml:"auto-restart"`
 	GithubToken   string        `toml:"github-token"`
 	Owner         string        `toml:"owner"`
 	Repo          string        `toml:"repo"`
@@ -30,7 +31,7 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:       true,
 		CheckInterval: 24 * time.Hour,
-		AutoApply:     false,
+		AutoApply:     true,
 		Owner:         "LeGeRyChEeSe",
 		Repo:          "vrhub-server",
 	}
@@ -38,7 +39,7 @@ func DefaultConfig() Config {
 
 const (
 	githubAPIURL      = "https://api.github.com/repos/%s/%s/releases/latest"
-	githubReleasesURL = "https://github.com/%s/%s/releases"
+	githubReleasesURL = "https://api.github.com/repos/%s/%s/releases"
 	httpTimeout       = 10 * time.Second
 )
 
@@ -93,11 +94,6 @@ func NewChecker(cfg Config, current Version) *Checker {
 // It runs the check immediately and then on the configured schedule.
 func (c *Checker) Start(ctx context.Context) {
 	logger := log.Get()
-	if !c.config.Enabled {
-		logger.Info().Msg("Update checker: disabled")
-		return
-	}
-
 	logger.Info().
 		Str("owner", c.config.Owner).
 		Str("repo", c.config.Repo).
@@ -284,7 +280,7 @@ func (c *Checker) check(ctx context.Context) {
 			Str("latest", latestVer.String()).
 			Str("download_url", downloadURL).
 			Msg("Update checker: new version available")
-		c.setResult(true, latestVer.String(), downloadURL)
+		c.setResultWithNotes(true, latestVer.String(), downloadURL, release.Body, false)
 
 		// Auto-apply: trigger download and restart if enabled.
 		if c.config.AutoApply {
@@ -292,7 +288,7 @@ func (c *Checker) check(ctx context.Context) {
 			if app != nil && downloadURL != "" {
 				go func() {
 					logger.Info().Str("version", latestVer.String()).Msg("Update checker: auto-applying update")
-					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+					applyCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 					defer cancel()
 					applyCfg := ApplyConfig{
 						DataDir:     app.config.DataDir,
@@ -300,10 +296,16 @@ func (c *Checker) check(ctx context.Context) {
 						MaxBackups:  app.config.MaxBackups,
 						DownloadURL: downloadURL,
 						Version:     latestVer.String(),
+						AutoRestart: c.config.AutoRestart,
 					}
 					a := NewApplicator(applyCfg)
-					if err := a.DownloadAndApply(ctx); err != nil {
-						logger.Error().Err(err).Str("version", latestVer.String()).Msg("Update checker: auto-apply failed")
+					if err := a.DownloadAndApply(applyCtx); err != nil {
+						if err == ErrRestartPending {
+							logger.Info().Str("version", latestVer.String()).Msg("Update checker: auto-apply staged, waiting for explicit restart")
+							c.setResultWithNotes(true, latestVer.String(), downloadURL, release.Body, true)
+						} else {
+							logger.Error().Err(err).Str("version", latestVer.String()).Msg("Update checker: auto-apply failed")
+						}
 					} else {
 						logger.Info().Str("version", latestVer.String()).Msg("Update checker: auto-apply succeeded, process restarted")
 					}
@@ -317,7 +319,7 @@ func (c *Checker) check(ctx context.Context) {
 			Str("current", c.currentVer.String()).
 			Str("latest", latestVer.String()).
 			Msg("Update checker: no update available")
-		c.setResult(false, latestVer.String(), "")
+		c.setResultWithNotes(false, latestVer.String(), "", "", false)
 	}
 
 	c.mu.Lock()
@@ -325,8 +327,13 @@ func (c *Checker) check(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-// setResult updates the last check result atomically.
+// setResult updates the last check result atomically (no release notes).
 func (c *Checker) setResult(available bool, version, downloadURL string) {
+	c.setResultWithNotes(available, version, downloadURL, "", false)
+}
+
+// setResultWithNotes updates the last check result with release notes and restart state.
+func (c *Checker) setResultWithNotes(available bool, version, downloadURL, notes string, restartPending bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastResult = &CheckResult{
@@ -334,6 +341,8 @@ func (c *Checker) setResult(available bool, version, downloadURL string) {
 		LatestVersion:    version,
 		DownloadURL:      downloadURL,
 		CheckedAt:        time.Now(),
+		ReleaseNotes:     notes,
+		RestartPending:   restartPending,
 	}
 }
 
@@ -358,6 +367,7 @@ func findAssetURL(assets []Asset, goos, goarch string) string {
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 	HTMLURL string `json:"html_url"`
+	Body    string `json:"body"`
 	Assets  []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
@@ -384,7 +394,57 @@ func parseRelease(body []byte) (*ReleaseInfo, error) {
 		Version: strings.TrimPrefix(release.TagName, "v"),
 		HTMLURL: release.HTMLURL,
 		Assets:  assets,
+		Body:    release.Body,
 	}, nil
+}
+
+// FetchReleases fetches the list of recent GitHub releases for the given owner/repo.
+// Returns up to 10 releases with their tag, version, body, and HTML URL.
+func FetchReleases(ctx context.Context, cfg Config) ([]ReleaseInfo, error) {
+	urlTmpl := githubReleasesURL
+	url := fmt.Sprintf(urlTmpl+"?per_page=10", cfg.Owner, cfg.Repo)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("FetchReleases: create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if cfg.GithubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.GithubToken)
+	}
+
+	client := &http.Client{Timeout: httpTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("FetchReleases: HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("FetchReleases: unexpected status %d", resp.StatusCode)
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("FetchReleases: read body: %w", err)
+	}
+
+	var ghReleases []GitHubRelease
+	if err := json.Unmarshal(raw, &ghReleases); err != nil {
+		return nil, fmt.Errorf("FetchReleases: unmarshal: %w", err)
+	}
+
+	releases := make([]ReleaseInfo, 0, len(ghReleases))
+	for _, r := range ghReleases {
+		releases = append(releases, ReleaseInfo{
+			TagName: r.TagName,
+			Version: strings.TrimPrefix(r.TagName, "v"),
+			HTMLURL: r.HTMLURL,
+			Body:    r.Body,
+		})
+	}
+	return releases, nil
 }
 
 // ParseVersion parses a semantic version string (e.g., "v1.2.3" or "1.2.3").
@@ -460,6 +520,17 @@ func StopGlobalChecker() {
 	if globalChecker != nil {
 		globalChecker.Stop()
 	}
+}
+
+// SetGlobalChecker registers c as the package-level checker instance so that
+// GetGlobalChecker() and the admin API can read its results. Must be called
+// after Start(); safe to call exactly once (subsequent calls are no-ops via
+// sync.Once). Used by main.go which creates the checker locally (to wire the
+// applicator) and then registers it here.
+func SetGlobalChecker(c *Checker) {
+	checkerMu.Do(func() {
+		globalChecker = c
+	})
 }
 
 // GetGlobalChecker returns the global checker instance.
