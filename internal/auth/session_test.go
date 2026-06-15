@@ -588,10 +588,10 @@ func TestIsJSONRequest_AdminAPIPath(t *testing.T) {
 		{"/admin/api/games/rescan", "", true},
 		{"/admin/api/games", "", true},
 		{"/admin/api/admin/settings", "", true},
-		{"/admin/api/auth/login", "text/html", true},   // path wins over Accept
-		{"/admin/login", "", false},                    // UI route → HTML
-		{"/admin/settings", "text/html", false},        // UI route → HTML
-		{"/admin/api/games/rescan", "*/*", true},       // path wins over wildcard
+		{"/admin/api/auth/login", "text/html", true}, // path wins over Accept
+		{"/admin/login", "", false},                  // UI route → HTML
+		{"/admin/settings", "text/html", false},      // UI route → HTML
+		{"/admin/api/games/rescan", "*/*", true},     // path wins over wildcard
 	}
 	for _, tc := range cases {
 		req := httptest.NewRequest(http.MethodPost, tc.path, nil)
