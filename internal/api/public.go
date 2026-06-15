@@ -595,13 +595,11 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 			return
 		}
 
-		// Validate hash format. Pre-9.10 games used MD5 (32 hex
-		// chars) for the row hash. Story 9.10 T2 (Fix #6 Round 11)
-		// changed the scanner to SHA-256 of the file path (64 hex
-		// chars) to avoid UNIQUE-constraint collisions across
-		// multiple APK versions of the same package. Both formats
-		// are valid; reject anything else (defense against
-		// enumeration/abuse via arbitrary-length paths).
+		// Validate hash format: must be a 32-char hex MD5 digest
+		// (MD5(packageName + "\n") — mirrors the VRHub client's
+		// CryptoUtils.md5(releaseName + "\n") URL construction).
+		// Also accept 64-char SHA-256 to serve games imported by
+		// a buggy intermediate build (fixed in this commit).
 		if len(hash) != 32 && len(hash) != 64 {
 			http.NotFound(w, r)
 			return
@@ -768,6 +766,7 @@ func serveFileListing(w http.ResponseWriter, r *http.Request, deps fileServerDep
 	fmt.Fprintf(w, "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>%s</title></head>\n<body>\n", title)
 	fmt.Fprintf(w, "<h1>%s</h1>\n<ul>\n", title)
 
+	listedOBB := false
 	for _, entry := range entries {
 		name := entry.Name()
 
@@ -781,9 +780,22 @@ func serveFileListing(w http.ResponseWriter, r *http.Request, deps fileServerDep
 		if ext != ".apk" && ext != ".obb" {
 			continue
 		}
+		if ext == ".obb" {
+			listedOBB = true
+		}
 
 		encodedName := url.PathEscape(name)
 		fmt.Fprintf(w, "<li><a href=\"%s\">%s</a></li>\n", encodedName, htmlEscapeString(name))
+	}
+
+	// OBB may be stored in a subdirectory of the release folder (e.g.
+	// com.Package/main.N.com.Package.obb). ReadDir only walks one level,
+	// so inject the OBB basename from game.OBBPath when it lives outside
+	// gameDir. serveFileDownload routes any .obb URL directly to OBBPath.
+	if !listedOBB && game.OBBPath != "" && filepath.Dir(game.OBBPath) != gameDir {
+		obbName := filepath.Base(game.OBBPath)
+		encodedName := url.PathEscape(obbName)
+		fmt.Fprintf(w, "<li><a href=\"%s\">%s</a></li>\n", encodedName, htmlEscapeString(obbName))
 	}
 
 	fmt.Fprintf(w, "</ul>\n</body>\n</html>\n")

@@ -172,6 +172,60 @@ func TestServeFileListing_UsesApkPath_Dir(t *testing.T) {
 	}
 }
 
+// TestServeFileListing_OBBInSubdir injects an OBB that lives in a
+// subdirectory of the APK folder (the AI Roommate layout on disk:
+//
+//	release_dir/game.apk
+//	release_dir/com.Pkg/main.1.com.Pkg.obb
+//
+// ReadDir only walks one level, so the OBB must be injected from
+// game.OBBPath instead of being discovered by the directory scan.
+func TestServeFileListing_OBBInSubdir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	releaseDir := filepath.Join(tmpDir, "AI_Roommate_v448")
+	subDir := filepath.Join(releaseDir, "com.Raetae.AIRoommate")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	apkPath := filepath.Join(releaseDir, "AI_Roommate_v448_com.Raetae.AIRoommate.apk")
+	if err := os.WriteFile(apkPath, []byte("apk"), 0644); err != nil {
+		t.Fatalf("write apk: %v", err)
+	}
+	obbPath := filepath.Join(subDir, "main.448.com.Raetae.AIRoommate.obb")
+	if err := os.WriteFile(obbPath, []byte("obb"), 0644); err != nil {
+		t.Fatalf("write obb: %v", err)
+	}
+
+	const hash = "99ee2a55df6a4141528a9815c7d10082"
+	db := &mockFileServerDB{
+		game: &types.GameEntry{
+			GameName:    "AI Roommate",
+			PackageName: "com.Raetae.AIRoommate",
+			Hash:        hash,
+			ApkPath:     apkPath,
+			OBBPath:     obbPath,
+		},
+	}
+
+	handler := setupFileServerHandler(t, db, &realFileReader{}, &types.Config{DataDir: tmpDir})
+
+	req := httptest.NewRequest("GET", "/"+hash+"/com.Raetae.AIRoommate", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "AI_Roommate_v448_com.Raetae.AIRoommate.apk") {
+		t.Error("body should contain the APK filename")
+	}
+	if !strings.Contains(body, "main.448.com.Raetae.AIRoommate.obb") {
+		t.Error("body should contain the OBB filename even though it is in a subdirectory")
+	}
+}
+
 // TestServeFileDownload_UsesOBBPath_ForOBBFile verifies that the
 // OBB download branch (fileName extension == .obb) resolves the
 // file from game.OBBPath — not from game.ApkPath. This is the
