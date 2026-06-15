@@ -444,6 +444,12 @@ func main() {
 	// Start HTTP server in a goroutine so we can handle signals.
 	server := &http.Server{Addr: addr, Handler: r}
 
+	// Wire the live-rebinder so Rebind() can swap the listener.
+	reloader.server = &server
+	reloader.router = r
+	reloader.curAddr = addr
+	reloader.curPort = resolvedPort
+
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			vlog.Get().Fatal().Err(err).Msg("Server failed")
@@ -561,9 +567,10 @@ func (r *liveRebinder) Rebind(addr string) error {
 	if err != nil {
 		return fmt.Errorf("rebind: listen on %s: %w", addr, err)
 	}
-	*r.server = newServer
+	oldServer := *r.server
 	oldAddr := r.curAddr
 	oldPort := r.curPort
+	*r.server = newServer
 	r.curAddr = addr
 	// Cache the new port for the next rebind / for the shutdown
 	// path. host changes (e.g. 0.0.0.0 -> 127.0.0.1) keep the same
@@ -598,14 +605,18 @@ func (r *liveRebinder) Rebind(addr string) error {
 	}
 
 	// Shut down the old server (if any, and if it's on a different addr).
-	if oldAddr != "" && oldAddr != addr {
-		// Best-effort shutdown of the previous server. The previous
-		// server's *http.Server is reachable via the pointer-pointer.
-		// For simplicity, we re-fetch it here.
-		// (Implementation note: in production, a more robust design
-		// would keep the oldServer as a direct field rather than a
-		// pointer-to-pointer; for now, the simplest path is to call
-		// Shutdown on the previously-stored server if any.)
+	// Runs in a goroutine: Rebind() is called from an HTTP handler that
+	// is itself in-flight on oldServer; blocking on Shutdown() would
+	// stall that handler and deadlock if the server waits for all
+	// handlers to finish before returning from Shutdown().
+	if oldServer != nil && oldAddr != "" && oldAddr != addr {
+		go func() {
+			shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutCancel()
+			if err := oldServer.Shutdown(shutCtx); err != nil {
+				vlog.Get().Warn().Err(err).Str("addr", oldAddr).Msg("graceful shutdown of old listener failed")
+			}
+		}()
 	}
 
 	vlog.Get().Info().Str("old_addr", oldAddr).Str("new_addr", addr).Msg("listener rebound")
