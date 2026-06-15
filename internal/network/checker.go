@@ -81,7 +81,7 @@ const (
 	DefaultGitHubURL = "https://api.github.com/repos/LeGeRyChEeSe/vrhub-server/releases/latest"
 	// DefaultMetadataURL is the HEAD-able endpoint for the
 	// MetaMetadata tarball on GitHub releases.
-	DefaultMetadataURL = "https://github.com/user/vrhub-metadata/releases/latest/download/metadata.tar.gz"
+	DefaultMetadataURL = "https://github.com/threethan/MetaMetadata/archive/refs/heads/main.tar.gz"
 
 	// DefaultCheckInterval is the gap between consecutive checks
 	// (60s — anonymous GitHub rate limit is 60 req/h, so 1 req/60s

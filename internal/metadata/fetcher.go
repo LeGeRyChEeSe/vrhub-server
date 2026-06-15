@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultMetadataURL     = "https://github.com/user/vrhub-metadata/releases/latest/download/metadata.tar.gz"
+	defaultMetadataURL     = "https://github.com/threethan/MetaMetadata/archive/refs/heads/main.tar.gz"
 	cacheDirName           = "metadata"
 	maxRetries             = 3
 	baseRetryDelay         = 1 * time.Second

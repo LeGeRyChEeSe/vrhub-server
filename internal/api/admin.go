@@ -578,17 +578,35 @@ func (h *AdminHandler) HandleRescanPOST(w http.ResponseWriter, r *http.Request) 
 
 	// Load current config to discover the configured game folders.
 	// If none are configured, fall back to DataDir for backward
-	// compatibility with legacy setups that pre-date game_folders.
-	cfg, cfgErr := config.Load(h.DataDir)
+	// compatibility with legacy setups that pre-date game_folders,
+	// and persist DataDir to game_folders so the configuration page
+	// reflects the effective scan location.
+	usingFallback := false
 	scanDirs := []string{h.DataDir}
-	if cfgErr == nil && len(cfg.GameFolders) > 0 {
-		scanDirs = cfg.GameFolders
+	if currentCfg, ok := h.resolveConfig(); ok {
+		if len(currentCfg.GameFolders) > 0 {
+			scanDirs = currentCfg.GameFolders
+		} else {
+			usingFallback = true
+		}
 	}
 
 	result, err := game.ScanAndImportMultiple(ctx, scanDirs, h.Importer)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Rescan failed: "+err.Error(), "RESCAN_ERROR")
 		return
+	}
+
+	// Persist the DataDir fallback to game_folders so subsequent rescans
+	// and the configuration page show the effective scan location.
+	if usingFallback {
+		if currentCfg, ok := h.resolveConfig(); ok && len(currentCfg.GameFolders) == 0 {
+			upgraded := *currentCfg
+			upgraded.GameFolders = []string{h.DataDir}
+			if upgradeErr := h.UpdateConfig(&upgraded); upgradeErr != nil {
+				vlog.Get().Warn().Err(upgradeErr).Msg("rescan: failed to persist DataDir to game_folders")
+			}
+		}
 	}
 
 	resp := map[string]interface{}{

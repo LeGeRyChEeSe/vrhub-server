@@ -249,7 +249,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
                 <div class="card-header">
                     <span class="card-title" data-i18n="changelog_title">Historique des versions</span>
                 </div>
-                <div id="michel-changelog-content">
+                <div id="michel-changelog-content" class="changelog-scroll-body">
                     <p data-i18n="changelog_loading">Chargement…</p>
                 </div>
             </div>
@@ -344,7 +344,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
                 <div class="card-header">
                     <span class="card-title" data-i18n="changelog_title">Historique des versions</span>
                 </div>
-                <div id="power-changelog-content">
+                <div id="power-changelog-content" class="changelog-scroll-body">
                     <p data-i18n="changelog_loading">Chargement…</p>
                 </div>
             </div>

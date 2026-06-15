@@ -278,6 +278,11 @@ body {
 }
 
 /* Changelog list */
+.changelog-scroll-body {
+    max-height: 280px;
+    overflow-y: auto;
+}
+
 .changelog-list {
     display: flex;
     flex-direction: column;

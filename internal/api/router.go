@@ -257,6 +257,7 @@ func SetupRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *type
 	// ones blocked by SetupModeMiddleware / SetupMode503Handler
 	// further down the stack.
 	r.Use(accessLogMiddleware)
+	r.Use(MonitorMiddleware(monitorBus))
 
 	// Public API routes protected by setup mode 503 handler.
 	// Story 9.1 (B1): capture the PublicAPIHandler so setupAdminRouter

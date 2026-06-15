@@ -858,10 +858,10 @@ function handleRouteDashboard() {
     // Power fetchPowerConfig + fetchPowerStats).
     if (getMode() === 'michel') {
         loadMichelWidgets();
-        fetchChangelog(); // populate Michel changelog card at bottom of dashboard
     } else {
         loadPowerUserWidgets();
     }
+    fetchChangelog(); // populate changelog card in both modes
 }
 
 function handleRouteUpdates() {
@@ -1107,13 +1107,23 @@ function handleRouteConfiguration() {
     if (!container) return;
     container.textContent = i18n('settings_loading');
     fetch('/admin/api/admin/settings', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-        .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(r) {
+            if (r.status === 401) { window.location.href = '/admin/login'; return null; }
+            if (!r.ok) throw new Error(r.status);
+            return r.json();
+        })
         .then(function(data) {
+            if (!data) return;
             var d = (data && data.data) || {};
             container.textContent = '';
             renderSettingsForm(container, d);
         })
-        .catch(function() { container.textContent = i18n('settings_loading'); });
+        .catch(function(err) {
+            container.innerHTML = '<p style="color:var(--color-error,#c0392b)">' +
+                i18n('settings_load_error', 'Erreur de chargement des paramètres') +
+                (err ? ' (' + err.message + ')' : '') + '. ' +
+                '<a href="/admin/login">Reconnectez-vous</a>.</p>';
+        });
 }
 
 function renderSettingsForm(container, d) {
@@ -1239,6 +1249,14 @@ function renderSettingsForm(container, d) {
     foldersList.style.flexDirection = 'column';
     foldersList.style.gap = '0.5rem';
     var folders = (d.game_folders && Array.isArray(d.game_folders)) ? d.game_folders : [];
+    if (folders.length === 0) {
+        var emptyMsg = document.createElement('p');
+        emptyMsg.id = 'cfg-folders-empty';
+        emptyMsg.className = 'form-help';
+        var fallback = d.data_dir ? ' ' + i18n('config_no_folders_fallback', 'Répertoire de données utilisé par défaut :') + ' ' + d.data_dir : '';
+        emptyMsg.textContent = i18n('config_no_folders', 'Aucun dossier configuré.') + fallback;
+        foldersList.appendChild(emptyMsg);
+    }
     folders.forEach(function(f) {
         var row = document.createElement('div');
         row.style.display = 'flex';
@@ -1248,12 +1266,14 @@ function renderSettingsForm(container, d) {
         inp.value = f;
         inp.className = 'form-input';
         inp.style.flex = '1';
+        if (readOnly) inp.setAttribute('disabled', '');
         row.appendChild(inp);
         var delBtn = document.createElement('button');
         delBtn.type = 'button';
         delBtn.className = 'btn btn-danger';
         delBtn.textContent = '×';
         delBtn.addEventListener('click', function() { row.remove(); });
+        if (readOnly) delBtn.style.display = 'none';
         row.appendChild(delBtn);
         foldersList.appendChild(row);
     });
@@ -1264,6 +1284,8 @@ function renderSettingsForm(container, d) {
     addFolderBtn.textContent = i18n('config_add_folder');
     if (readOnly) addFolderBtn.style.display = 'none';
     addFolderBtn.addEventListener('click', function() {
+        var emptyEl = document.getElementById('cfg-folders-empty');
+        if (emptyEl) emptyEl.remove();
         var row = document.createElement('div');
         row.style.display = 'flex';
         row.style.gap = '0.5rem';
@@ -1280,6 +1302,7 @@ function renderSettingsForm(container, d) {
         delBtn.addEventListener('click', function() { row.remove(); });
         row.appendChild(delBtn);
         foldersList.appendChild(row);
+        inp.focus();
     });
     foldersGroup.appendChild(addFolderBtn);
     var resetFoldersBtn = document.createElement('button');
@@ -1763,7 +1786,7 @@ function handleRouteClientSetup() {
                 // Probe /meta.7z — 200 = OK, anything else = problem.
                 // The request runs without the session cookie so we
                 // don't fail on CSRF. /meta.7z is a public endpoint.
-                fetch(baseUri + 'meta.7z', { method: 'HEAD' })
+                fetch('/meta.7z', { method: 'HEAD' })
                     .then(function(r) {
                         if (r.ok) {
                             showInlineNotification('OK: HTTP ' + r.status);
@@ -2059,18 +2082,19 @@ function setupTiltCards() {
     // is the single opt-in signal consumed by the loop below.
     var appMainButtons = document.querySelectorAll('#app-main .btn');
     Array.prototype.forEach.call(appMainButtons, function(b) {
-        if (!b.classList.contains('tiltable')) b.classList.add('tiltable');
+        if (!b.classList.contains('tiltable') && !b.closest('.tiltable')) b.classList.add('tiltable');
     });
     function tiltTowardCursor(el, maxTilt) {
         el.addEventListener('mousemove', function(e) {
             e.stopPropagation();
             var rect = el.getBoundingClientRect();
+            var effectiveMaxTilt = maxTilt * Math.min(1, 200 / Math.max(rect.height, rect.width, 1));
             var centerX = rect.left + rect.width / 2;
             var centerY = rect.top + rect.height / 2;
             var relX = (e.clientX - centerX) / (rect.width / 2);
             var relY = (e.clientY - centerY) / (rect.height / 2);
-            var rotateY = relX * maxTilt;
-            var rotateX = -relY * maxTilt;
+            var rotateY = relX * effectiveMaxTilt;
+            var rotateX = -relY * effectiveMaxTilt;
             el.style.transform = 'perspective(500px) rotateX(' + rotateX.toFixed(1) + 'deg) rotateY(' + rotateY.toFixed(1) + 'deg)';
         });
         el.addEventListener('mouseleave', function() {
@@ -2819,6 +2843,8 @@ var I18N_MICHEL = {
     'config_game_folders': 'Dossiers de jeux',
     'config_game_folders_help': "Chemins absolus vers les dossiers contenant les fichiers APK/OBB. Cliquer 'Rescanner' après modification.",
     'config_add_folder': 'Ajouter un dossier',
+    'config_no_folders': 'Aucun dossier configuré.',
+    'config_no_folders_fallback': 'Répertoire de données utilisé par défaut :',
     'config_auto_apply': 'Appliquer auto les MAJ',
     'config_auto_apply_help': 'Applique automatiquement les nouvelles versions dès détection.',
     'config_auto_restart': 'Redémarrage automatique',
@@ -3035,6 +3061,8 @@ var I18N_POWER = {
     'config_game_folders': 'Game folders',
     'config_game_folders_help': "Absolute paths to directories containing APK/OBB files. Click 'Rescan' after editing.",
     'config_add_folder': 'Add folder',
+    'config_no_folders': 'No folder configured.',
+    'config_no_folders_fallback': 'Data directory used as fallback:',
     'config_auto_apply': 'Auto-apply updates',
     'config_auto_apply_help': 'Automatically apply new versions as soon as they are detected.',
     'config_auto_restart': 'Auto-restart',

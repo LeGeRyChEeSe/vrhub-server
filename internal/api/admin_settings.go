@@ -233,6 +233,8 @@ func (h *AdminHandler) handleSettingsJSON(w http.ResponseWriter, r *http.Request
 		data["archive_password"] = cfg.Admin.ArchivePassword
 	}
 
+	data["game_folders"] = cfg.GameFolders
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"data": data,
 	})

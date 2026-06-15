@@ -30,6 +30,12 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+func (r *responseRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // MonitorMiddleware wraps next so every request is published as a
 // monitor event of type "http" with the captured method, path, status,
 // and duration. The bus may be nil (no-op) so tests and partial
