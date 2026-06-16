@@ -6,6 +6,7 @@ import (
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/ui"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/update"
 )
 
 // RegisterStatsHTMLRenderer wires the /admin/stats HTML renderer into
@@ -37,6 +38,7 @@ func RegisterStatsHTMLRenderer() {
 // hand-rolled (no html/template) to keep the page in one file and
 // avoid a template parser dependency for a 60-line page.
 func adminStatsHTMLBytes() []byte {
+	v := update.CurrentVersion.String()
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html>
 <html lang="en">
@@ -44,7 +46,7 @@ func adminStatsHTMLBytes() []byte {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VRHub Server - Statistics</title>
-<link rel="stylesheet" href="/admin/static/admin.css">
+<link rel="stylesheet" href="/admin/static/admin.css?v=` + v + `">
 </head>
 <body class="mode-power">
 <div class="container">
@@ -67,7 +69,7 @@ func adminStatsHTMLBytes() []byte {
 </section>
 </div>
 
-<script src="/admin/static/admin.js"></script>
+<script src="/admin/static/admin.js?v=` + v + `"></script>
 </body>
 </html>`)
 	return []byte(b.String())

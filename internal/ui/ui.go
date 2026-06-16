@@ -83,7 +83,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
          state-changing endpoints. -->
     <meta name="csrf-token" content="__VRHUB_CSRF_TOKEN__">
     <title>VRHub Server - Admin</title>
-    <link rel="stylesheet" href="/admin/static/admin.css">
+    <link rel="stylesheet" href="/admin/static/admin.css?v={{.Version}}">
 </head>
 <body class="mode-michel" data-route="dashboard">
 <!-- Mode + lang detection: run synchronously right after body opens
@@ -409,7 +409,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
         <button type="button" id="mode-switch-power" class="mode-switch-seg" aria-pressed="false" data-i18n="mode_label_power">Power</button>
     </div>
 
-    <script src="/admin/static/admin.js"></script>
+    <script src="/admin/static/admin.js?v={{.Version}}"></script>
 </body>
 </html>`
 
@@ -444,7 +444,7 @@ const loginHTMLTemplate = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VRHub Server - Login</title>
-    <link rel="stylesheet" href="/admin/static/admin.css">
+    <link rel="stylesheet" href="/admin/static/admin.css?v={{.Version}}">
 </head>
 <body class="login-page">
     <div class="login-container">

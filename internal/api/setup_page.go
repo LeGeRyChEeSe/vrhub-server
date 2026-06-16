@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/ui"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/update"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
@@ -43,6 +44,7 @@ func RegisterSetupHTMLRenderer() {
 //     global is exposed before setup.js consumes it.
 //   - <noscript> fallback points to curl as a manual setup path.
 func adminSetupHTMLBytes() []byte {
+	v := update.CurrentVersion.String()
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html>
 <html lang="fr">
@@ -50,8 +52,8 @@ func adminSetupHTMLBytes() []byte {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VRHub Server - Setup</title>
-<link rel="stylesheet" href="/admin/static/admin.css">
-<link rel="stylesheet" href="/admin/static/setup.css">
+<link rel="stylesheet" href="/admin/static/admin.css?v=` + v + `">
+<link rel="stylesheet" href="/admin/static/setup.css?v=` + v + `">
 </head>
 <body>
 
@@ -183,8 +185,8 @@ func adminSetupHTMLBytes() []byte {
 </div>
 </div>
 
-<script src="/admin/static/admin.js"></script>
-<script src="/admin/static/setup.js"></script>
+<script src="/admin/static/admin.js?v=` + v + `"></script>
+<script src="/admin/static/setup.js?v=` + v + `"></script>
 </body>
 </html>`)
 	return []byte(b.String())

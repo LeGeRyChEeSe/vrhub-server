@@ -2663,6 +2663,14 @@ document.addEventListener('modechange', function(e) {
     if (e.detail.to === 'michel' && powerOnly) {
         routeTo('power-required');
     } else {
+        // Always write body[data-route] before routeFromHash so the
+        // CSS cascade sees the correct route attribute immediately after
+        // the mode-class swap — without this, a brief window exists where
+        // body.mode-michel is set but the attribute hasn't been (re)written,
+        // which caused both #section-dashboard and the previous route
+        // section to be visible simultaneously.
+        var activeRoute = r || 'dashboard';
+        document.body.setAttribute('data-route', activeRoute);
         // Refresh the current route so visible widgets re-fetch.
         routeFromHash({ skipHashUpdate: true });
     }

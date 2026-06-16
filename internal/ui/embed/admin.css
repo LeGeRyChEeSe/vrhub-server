@@ -1160,17 +1160,12 @@ body[data-route="power-required"] #section-power-required {
    (#/games, #/configuration, #/backup, #/api-docs, #/monitoring,
    #/stats) to #/power-required. The router sets body[data-route] to
    "power-required" in that case, so the body[data-route] rule above
-   handles the visibility. The Michel-only override below is purely
-   defensive: in case someone disables JS or the router hasn't run
-   yet, the dashboard is always visible in Michel mode. The
-   :not([data-route]) guard prevents this rule from firing once the
-   JS router has set a data-route — without it, switching from Power
-   to Michel while on a non-dashboard route would show BOTH the
-   current route section AND the dashboard simultaneously. */
-body.mode-michel:not([data-route]) #section-dashboard,
-body.mode-michel:not([data-route]) #section-power-required {
-    display: block;
-}
+   handles the visibility.
+   The HTML template initialises body with data-route="dashboard" so
+   the dashboard always shows before JS runs — no extra defensive
+   rule is needed here. Removing it prevents the old high-specificity
+   version (body.mode-michel #section-dashboard) from ever overriding
+   the base #app-main [data-route]{display:none} hide rule. */
 
 /* Section fade-in: a 120ms ease on opacity + slight Y translate.
    Triggered by JS adding a class on the newly-active section. */
