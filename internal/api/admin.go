@@ -104,6 +104,12 @@ type AdminHandler struct {
 	// Default policy: 5 attempts per 60-second sliding window per
 	// (IP, account) pair. See internal/auth/ratelimit.go.
 	LoginRateLimiter *auth.RateLimiter
+
+	// OnConfigUpdated is called by UpdateConfig after a successful disk
+	// write and in-memory swap, allowing other handlers (e.g.
+	// PublicAPIHandler) to refresh their own Config pointer without
+	// polling. nil in test wiring.
+	OnConfigUpdated func(*types.Config)
 }
 
 // NewAdminHandler creates a new AdminHandler with optional session store and config.
@@ -147,6 +153,9 @@ func (h *AdminHandler) UpdateConfig(newCfg *types.Config) error {
 		return err
 	}
 	h.Config = newCfg
+	if h.OnConfigUpdated != nil {
+		h.OnConfigUpdated(newCfg)
+	}
 	return nil
 }
 

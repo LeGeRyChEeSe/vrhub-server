@@ -63,6 +63,17 @@ func (m *MetadataCache) IconPath(packageName string) string {
 	return filepath.Join(m.root, "icons", fmt.Sprintf("%s.png", packageName))
 }
 
+// IconPathByRelease returns the path to an icon file indexed by release name.
+// MetaMetadata images are downloaded and stored under the release name, not the package name.
+func (m *MetadataCache) IconPathByRelease(releaseName string) string {
+	return filepath.Join(m.root, "icons", releaseName+".png")
+}
+
+// ThumbnailPathByRelease returns the path to a thumbnail indexed by release name.
+func (m *MetadataCache) ThumbnailPathByRelease(releaseName string) string {
+	return filepath.Join(m.root, "thumbnails", releaseName+".jpg")
+}
+
 // ThumbnailExists checks if a thumbnail file exists for the given package name.
 func (m *MetadataCache) ThumbnailExists(packageName string) bool {
 	info, err := os.Lstat(m.ThumbnailPath(packageName))
@@ -153,7 +164,16 @@ func (g *Generator) generate(ctx context.Context, games []types.GameEntry, metad
 			}
 			seenPackages[pkg] = true
 
+			// Thumbnail: prefer MetaMetadata (releaseName) over APK-extracted (packageName).
 			thumbnailPath := metadata.ThumbnailPath(pkg)
+			if game.ReleaseName != "" {
+				if relPath := metadata.ThumbnailPathByRelease(game.ReleaseName); func() bool {
+					info, e := os.Stat(relPath)
+					return e == nil && !info.IsDir()
+				}() {
+					thumbnailPath = relPath
+				}
+			}
 			if info, statErr := os.Stat(thumbnailPath); statErr == nil && !info.IsDir() {
 				data, readErr := readFileWithTimeout(ctx, thumbnailPath)
 				if readErr != nil {
@@ -171,7 +191,16 @@ func (g *Generator) generate(ctx context.Context, games []types.GameEntry, metad
 				files = append(files, archiveFile{path: filepath.Join("notes", pkg+".txt"), data: data})
 			}
 
+			// Icon: prefer MetaMetadata (releaseName) over APK-extracted (packageName).
 			iconPath := metadata.IconPath(pkg)
+			if game.ReleaseName != "" {
+				if relPath := metadata.IconPathByRelease(game.ReleaseName); func() bool {
+					info, e := os.Stat(relPath)
+					return e == nil && !info.IsDir()
+				}() {
+					iconPath = relPath
+				}
+			}
 			if info, statErr := os.Stat(iconPath); statErr == nil && !info.IsDir() {
 				data, readErr := readFileWithTimeout(ctx, iconPath)
 				if readErr != nil {

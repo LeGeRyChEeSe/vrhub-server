@@ -511,6 +511,13 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 		if netChecker != nil {
 			adminHandler.NetworkChecker = netChecker
 		}
+		// Wire callback so publicHandler.Config stays in sync when
+		// admin settings (including host/port) are saved at runtime.
+		if publicHandler != nil {
+			adminHandler.OnConfigUpdated = func(newCfg *types.Config) {
+				publicHandler.Config = newCfg
+			}
+		}
 		r.Post("/api/auth/login", adminHandler.HandleAuthLoginPOST)
 		r.Post("/api/auth/logout", adminHandler.HandleAuthLogoutPOST)
 

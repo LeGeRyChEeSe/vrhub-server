@@ -398,6 +398,11 @@ func main() {
 	if port > 0 {
 		resolvedPort = port
 	}
+	// Sync back so HandleClientConfigGET reports the actual listen port
+	// (the -port flag overrides only resolvedPort, not cfg.Server.Port).
+	if cfg != nil {
+		cfg.Server.Port = resolvedPort
+	}
 	host := "0.0.0.0"
 	if cfg != nil {
 		host = cfg.Server.Host

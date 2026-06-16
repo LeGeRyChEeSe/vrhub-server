@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,7 +31,16 @@ const (
 	lastModifiedFile       = ".last_modified"
 	lastRefreshFile        = ".last_refresh"
 	defaultRefreshInterval = 24 * time.Hour
+	metaImageConcurrency   = 8
+	metaImageTimeout       = 10 * time.Second
 )
+
+// metaCommonJSON is the structure of each file in MetaMetadata's data/common/ directory.
+type metaCommonJSON struct {
+	Icon   string `json:"icon"`
+	Square string `json:"square"`
+	Hero   string `json:"hero"`
+}
 
 // Fetcher handles downloading and extracting metadata from a remote source.
 type Fetcher struct {
@@ -77,18 +87,33 @@ func NewFetcher(dataDir string, url string, refreshInterval time.Duration) *Fetc
 	}
 }
 
-// Fetch downloads and extracts the metadata tarball.
+// Fetch downloads and extracts the metadata tarball, then downloads game images
+// from the MetaMetadata CDN URLs concurrently. The image download runs outside
+// the mutex so it does not block concurrent callers for its full duration.
+//
 // It supports conditional requests (ETag/Last-Modified) to avoid unnecessary downloads.
 // On network failure or other errors, it logs a warning but does not panic — graceful degradation.
 func (f *Fetcher) Fetch(ctx context.Context) error {
+	cacheDir := filepath.Join(f.dataDir, cacheDirName)
+	extracted, err := f.fetchAndExtract(ctx, cacheDir)
+	if err != nil {
+		return err
+	}
+	if extracted {
+		f.processMetadataJSONs(ctx, cacheDir)
+	}
+	return nil
+}
+
+// fetchAndExtract holds the mutex and performs the download + tarball extraction.
+// Returns true when a new tarball was downloaded (caller should run processMetadataJSONs).
+func (f *Fetcher) fetchAndExtract(ctx context.Context, cacheDir string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	cacheDir := filepath.Join(f.dataDir, cacheDirName)
-
 	// Ensure metadata directory exists.
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return fmt.Errorf("metadata fetcher: create cache dir: %w", err)
+		return false, fmt.Errorf("metadata fetcher: create cache dir: %w", err)
 	}
 
 	// Build request with conditional headers if available.
@@ -100,23 +125,23 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 
 	resp, err := f.doWithRetry(req)
 	if err != nil {
-		return fmt.Errorf("metadata fetcher: %w", err)
+		return false, fmt.Errorf("metadata fetcher: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Handle 304 Not Modified — cache is up to date.
 	if resp.StatusCode == http.StatusNotModified {
 		f.logger.Debug().Str("url", f.url).Msg("Metadata cache is up to date (304)")
-		return nil
+		return false, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("metadata fetcher: unexpected status %d from %s", resp.StatusCode, f.url)
+		return false, fmt.Errorf("metadata fetcher: unexpected status %d from %s", resp.StatusCode, f.url)
 	}
 
 	// Extract tarball to metadata directory.
 	if err := f.extractTarball(ctx, resp.Body, cacheDir); err != nil {
-		return fmt.Errorf("metadata fetcher: extract: %w", err)
+		return false, fmt.Errorf("metadata fetcher: extract: %w", err)
 	}
 
 	// Save ETag and Last-Modified for future conditional requests.
@@ -128,7 +153,165 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	}
 
 	f.logger.Debug().Str("url", f.url).Msg("Metadata cache updated (cache miss)")
-	return nil
+	return true, nil
+}
+
+// findCommonDataDir locates the MetaMetadata data/common directory inside cacheDir.
+// GitHub archives wrap content in a top-level directory (e.g. MetaMetadata-main/),
+// so this function probes both directly at cacheDir and one level deep.
+func findCommonDataDir(cacheDir string) string {
+	if info, err := os.Stat(filepath.Join(cacheDir, "data", "common")); err == nil && info.IsDir() {
+		return cacheDir
+	}
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		nested := filepath.Join(cacheDir, e.Name(), "data", "common")
+		if info, err := os.Stat(nested); err == nil && info.IsDir() {
+			return filepath.Join(cacheDir, e.Name())
+		}
+	}
+	return ""
+}
+
+// processMetadataJSONs reads every JSON file in data/common/, downloads the icon
+// and thumbnail images from their CDN URLs, and writes them to
+// {cacheDir}/icons/{releaseName}.png and {cacheDir}/thumbnails/{releaseName}.jpg.
+// Failures are logged at Debug level and do not abort the process.
+func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
+	base := findCommonDataDir(cacheDir)
+	if base == "" {
+		f.logger.Debug().Str("cache_dir", cacheDir).Msg("metadata: MetaMetadata common dir not found, skipping image download")
+		return
+	}
+
+	commonDir := filepath.Join(base, "data", "common")
+	entries, err := os.ReadDir(commonDir)
+	if err != nil {
+		f.logger.Warn().Err(err).Str("dir", commonDir).Msg("metadata: failed to read common dir")
+		return
+	}
+
+	iconsDir := filepath.Join(cacheDir, "icons")
+	thumbsDir := filepath.Join(cacheDir, "thumbnails")
+	if err := os.MkdirAll(iconsDir, 0755); err != nil {
+		f.logger.Warn().Err(err).Msg("metadata: failed to create icons dir")
+		return
+	}
+	if err := os.MkdirAll(thumbsDir, 0755); err != nil {
+		f.logger.Warn().Err(err).Msg("metadata: failed to create thumbnails dir")
+		return
+	}
+
+	imgClient := &http.Client{Timeout: metaImageTimeout}
+	sem := make(chan struct{}, metaImageConcurrency)
+
+	var wg sync.WaitGroup
+	var downloaded, failed atomic.Int64
+
+	for _, e := range entries {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			f.logger.Info().Msg("metadata: image download cancelled")
+			return
+		default:
+		}
+
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+
+		releaseName := strings.TrimSuffix(e.Name(), ".json")
+		jsonPath := filepath.Join(commonDir, e.Name())
+
+		raw, err := os.ReadFile(jsonPath)
+		if err != nil {
+			continue
+		}
+		var meta metaCommonJSON
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			continue
+		}
+
+		if meta.Icon != "" {
+			dest := filepath.Join(iconsDir, releaseName+".png")
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(url, dest string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
+					f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: icon download failed")
+					failed.Add(1)
+				} else {
+					downloaded.Add(1)
+				}
+			}(meta.Icon, dest)
+		}
+
+		thumbURL := meta.Square
+		if thumbURL == "" {
+			thumbURL = meta.Hero
+		}
+		if thumbURL != "" {
+			dest := filepath.Join(thumbsDir, releaseName+".jpg")
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(url, dest string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
+					f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: thumbnail download failed")
+					failed.Add(1)
+				} else {
+					downloaded.Add(1)
+				}
+			}(thumbURL, dest)
+		}
+	}
+
+	wg.Wait()
+	f.logger.Info().
+		Int64("downloaded", downloaded.Load()).
+		Int64("failed", failed.Load()).
+		Msg("metadata: image download complete")
+}
+
+// downloadImage fetches a single image URL and writes it to dest.
+func (f *Fetcher) downloadImage(ctx context.Context, client *http.Client, url, dest string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("get image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d for %s", resp.StatusCode, url)
+	}
+
+	file, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dest, err)
+	}
+
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		file.Close()
+		os.Remove(dest)
+		return fmt.Errorf("write %s: %w", dest, err)
+	}
+
+	return file.Close()
 }
 
 func (f *Fetcher) newRequest(ctx context.Context) (*http.Request, error) {
