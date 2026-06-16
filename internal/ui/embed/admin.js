@@ -174,11 +174,14 @@ function fetchServerStatus() {
     var stopBtn = document.getElementById('stop-btn');
     if (!statusDot || !statusText) return;
 
+    var _ssAbort = new AbortController();
+    var _ssTimeout = setTimeout(function() { _ssAbort.abort(); }, 5000);
     fetch('/admin/api/update/status', {
+        signal: _ssAbort.signal,
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
     })
-        .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(r) { clearTimeout(_ssTimeout); if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) {
             // If we can reach the API, server is running
             statusDot.className = 'status-dot active';
@@ -187,6 +190,7 @@ function fetchServerStatus() {
             if (stopBtn) stopBtn.style.display = 'inline-flex';
         })
         .catch(function() {
+            clearTimeout(_ssTimeout);
             // Server unreachable — likely stopped or restarting
             statusDot.className = 'status-dot';
             statusText.textContent = i18n('server_status_stopped', 'Arrêté');
@@ -2147,11 +2151,14 @@ function setupTiltCards() {
 // plaintext, and a copy of the data in #header-archive-password).
 // Called once on DOMContentLoaded.
 function populateHeader() {
+    var _phAbort = new AbortController();
+    var _phTimeout = setTimeout(function() { _phAbort.abort(); }, 5000);
     fetch('/admin/api/admin/settings', {
+        signal: _phAbort.signal,
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
     })
-        .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(r) { clearTimeout(_phTimeout); if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) {
             if (!data || !data.data) return;
             var d = data.data;
@@ -2176,7 +2183,7 @@ function populateHeader() {
                 pwdEl.textContent = pwdEl.dataset.masked;
             }
         })
-        .catch(function() { /* no-op: header chips stay as defaults */ });
+        .catch(function() { clearTimeout(_phTimeout); /* no-op: header chips stay as defaults */ });
 }
 
 // DOM Elements
