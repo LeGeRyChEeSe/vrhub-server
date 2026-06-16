@@ -352,11 +352,16 @@ function fetchPowerConfig() {
     var grid = document.getElementById('config-grid');
     if (!grid) return;
 
+    var _pcAbort = new AbortController();
+    var _pcTimeout = setTimeout(function() { _pcAbort.abort(); }, 10000);
+
     fetch('/admin/api/admin/settings', {
+        signal: _pcAbort.signal,
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
     })
         .then(function(r) {
+            clearTimeout(_pcTimeout);
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         })
@@ -392,6 +397,7 @@ function fetchPowerConfig() {
             });
         })
         .catch(function(err) {
+            clearTimeout(_pcTimeout);
             // Story 9.6: warn instead of silent (the previous code
             // swallowed 404s from /admin/api/config without any
             // operator feedback).
@@ -1120,8 +1126,13 @@ function handleRouteConfiguration() {
     var container = document.getElementById('settings-form');
     if (!container) return;
     container.textContent = i18n('settings_loading');
-    fetch('/admin/api/admin/settings', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+
+    var _cfgRouteAbort = new AbortController();
+    var _cfgRouteTimeout = setTimeout(function() { _cfgRouteAbort.abort(); }, 10000);
+
+    fetch('/admin/api/admin/settings', { signal: _cfgRouteAbort.signal, credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function(r) {
+            clearTimeout(_cfgRouteTimeout);
             if (r.status === 401) { window.location.href = '/admin/login'; return null; }
             if (!r.ok) throw new Error(r.status);
             return r.json();
@@ -1133,6 +1144,7 @@ function handleRouteConfiguration() {
             renderSettingsForm(container, d);
         })
         .catch(function(err) {
+            clearTimeout(_cfgRouteTimeout);
             container.innerHTML = '<p style="color:var(--color-error,#c0392b)">' +
                 i18n('settings_load_error', 'Erreur de chargement des paramètres') +
                 (err ? ' (' + err.message + ')' : '') + '. ' +
@@ -1653,8 +1665,12 @@ function handleRouteClientSetup() {
 
     // Use powerFetch so X-Power-Mode: 1 is sent (defense in depth
     // for the cookie-based gate in stats.go / monitoring.go).
-    powerFetch('/admin/api/admin/settings', { headers: { 'Accept': 'application/json' } })
+    var _csAbort = new AbortController();
+    var _csTimeout = setTimeout(function() { _csAbort.abort(); }, 10000);
+
+    powerFetch('/admin/api/admin/settings', { signal: _csAbort.signal, headers: { 'Accept': 'application/json' } })
         .then(function(r) {
+            clearTimeout(_csTimeout);
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         })
@@ -1834,7 +1850,8 @@ function handleRouteClientSetup() {
             container.appendChild(stepsCard);
         })
         .catch(function(err) {
-            container.textContent = 'Failed to load: ' + (err && err.message || 'unknown');
+            clearTimeout(_csTimeout);
+            container.innerHTML = '<p class="text-muted">' + escapeHTML(i18n('client_setup_error', 'Impossible de charger la configuration.')) + '</p>';
         });
 }
 
