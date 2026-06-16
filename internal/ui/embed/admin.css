@@ -1162,9 +1162,13 @@ body[data-route="power-required"] #section-power-required {
    "power-required" in that case, so the body[data-route] rule above
    handles the visibility. The Michel-only override below is purely
    defensive: in case someone disables JS or the router hasn't run
-   yet, the dashboard is always visible in Michel mode. */
-body.mode-michel #section-dashboard,
-body.mode-michel #section-power-required {
+   yet, the dashboard is always visible in Michel mode. The
+   :not([data-route]) guard prevents this rule from firing once the
+   JS router has set a data-route — without it, switching from Power
+   to Michel while on a non-dashboard route would show BOTH the
+   current route section AND the dashboard simultaneously. */
+body.mode-michel:not([data-route]) #section-dashboard,
+body.mode-michel:not([data-route]) #section-power-required {
     display: block;
 }
 
