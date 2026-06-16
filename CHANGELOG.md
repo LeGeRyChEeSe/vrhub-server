@@ -7,6 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-16
+
+### Added
+- **In-app update notifications and changelog.** The admin UI now polls
+  GitHub releases in the background and surfaces available updates on
+  the Michel dashboard and on a new Power `#/updates` page. Release
+  notes are rendered as Markdown (headings, bold, italic, code, lists,
+  links) and served from a new `GET /admin/api/update/changelog` endpoint
+  with a 5-minute in-memory TTL to avoid burning the GitHub rate limit.
+- **Manual restart endpoint.** `POST /admin/api/update/restart` accepts an
+  operator-initiated restart after a staged update, and the update state
+  machine now exposes a new `restart-pending` state.
+- **MetaMetadata CDN image pipeline.** Icons and thumbnails are now
+  downloaded from the MetaMetadata CDN once per release and re-used by
+  the 7z archive generator (keyed by `releaseName`), removing per-request
+  network calls during `meta.7z` generation.
+- **Mode switch keeps Michel users on the dashboard.** Toggling mode
+  from Power into Michel now always lands on the Michel dashboard
+  regardless of the previous route. The locked design is now reflected
+  in the UI: Michel is a single-page experience.
+- **Asset cache-busting on embedded static files.** `admin.css`,
+  `admin.js`, `setup.css` and `setup.js` are now served with a `?v=<semver>`
+  query string derived from `update.CurrentVersion`, forcing browsers to
+  fetch the new build after a server restart even when `Cache-Control:
+  no-store` is bypassed by an in-memory cache.
+- **Michel "Connecter un client" card.** Populated from `fetchConfig()`,
+  removing the previous duplicate `GET /config.json` call.
+
+### Fixed
+- **`nil` pointer panic on port rebind.** `liveRebinder.server` and
+  `liveRebinder.router` were never assigned after `newLiveRebinder()`,
+  so saving a new port in admin settings crashed the server while
+  persisting the new value to disk. The fields are now wired in `main()`
+  before the listener goroutine starts, and `Rebind()` now performs a
+  graceful `Shutdown(ctx)` (10 s timeout) of the old server in a
+  goroutine to avoid deadlocking the in-flight handler that triggered
+  the rebind.
+- **TCP listener not released on Windows update+restart.** The parent
+  process held the TCP listener during the 2-second child liveness check,
+  causing `EADDRINUSE` and killing both processes on fast machines. The
+  restart handler now calls `Shutdown` (100 ms grace) before spawning
+  the child, so the port is free when the child binds. Tested live for
+  a 0.1.0 → 0.1.2 update+restart.
+- **`/config.json` served stale host/port after admin settings save.**
+  The public handler held a stale `Config` pointer after a settings
+  change. `UpdateConfig` now invokes an `OnConfigUpdated` callback that
+  refreshes the pointer used by `HandleClientConfigGET`. The resolved
+  listen port is also synced into `cfg.Server.Port` immediately after
+  the `-port` flag override.
+- **Games silently removed from the DB on metadata parse failure.**
+  Two related fixes: (a) the APK metadata extractor now always retries
+  with `extractViaManifestOnly` when the primary `apk.OpenFile` call
+  fails, so valid APKs are no longer skipped on every scan; (b) the
+  file-system watcher now records every seen APK path in a `seenPaths`
+  map and refuses to delete a DB entry whose `apk_path` is still
+  present on disk.
+- **Multi-section visible during mode toggle.** `body.mode-michel
+  #section-dashboard` (specificity 1-1-1) was overriding the base
+  `[data-route] { display: none }` rule, leaving the previous section
+  visible when switching to Michel. The defensive CSS rule was removed
+  (the HTML template already sets the correct `data-route`), then
+  re-added in a more targeted form (`body.mode-michel:not([data-route])
+  #section-dashboard`) to keep Michel defensive styling without the
+  bleed. A short debug `setTimeout`/`console.log` block in the
+  `modechange` handler was removed.
+- **Michel mode lands on dashboard on toggle.** The `modechange` handler
+  used to send Michel users to the `power-required` page whenever they
+  toggled mode from a Power-only route, and was leaking shared-mode
+  pages (configuration, client-setup, updates) into the Michel UX.
+  Both behaviours are now aligned with the locked design: Michel is a
+  single-page experience and any switch into Michel lands on the
+  dashboard.
+- **Frontend fetches hanging on a stalled server.** `AbortController`
+  with a 10 s timeout was added to `fetchServerStatus`, `populateHeader`,
+  `handleRouteClientSetup`, `fetchPowerConfig`, `handleRouteConfiguration`,
+  `fetchConfig`, the `loadMichelClientSetupCard` safety-net and
+  `fetchChangelog`, so a hung request no longer freezes the UI.
+- **Empty-state on the Power updates page.** The "Aucune mise à jour
+  disponible." message is now toggled on/off inside `renderUpdateCard()`
+  based on `data.versionAvailable`, instead of being always-visible
+  HTML.
+- **i18n coverage on the updates flow.** Hardcoded English strings on
+  the update banner, modal and restart page are now bound through
+  `data-i18n`. Nine new FR keys were added to `I18N_MICHEL` and nine
+  matching EN keys to `I18N_POWER`.
+- **MetaMetadata URL.** The default dataset URL now points to
+  `threethan/MetaMetadata` (the canonical community fork).
+- **Card tilt proportionality and rescan button freeze.** The 3D tilt
+  angle is now scaled inversely to element size, and tilt handlers
+  inside tiltable cards are no longer attached to inner buttons, so
+  the rescan button no longer freezes on first hover.
+- **Changelog scroll cap on the dashboard.** Changelog content divs
+  are now capped at 280 px with `overflow-y: auto` so very long
+  release notes no longer push the rest of the page.
+- **Update checker config not overridden by stale `Enabled=false`.**
+  The router now applies per-field overrides (`CheckInterval`,
+  `GithubToken`, `Owner`, `Repo`, `AutoApply`, `AutoRestart`) only when
+  the config has a non-zero value, so `DefaultConfig()` fallbacks are
+  preserved. The periodic check is always active.
+- **Copy buttons failing on plain-HTTP admin pages.** The copy
+  buttons now use a `copyToClipboard()` helper that prefers the async
+  Clipboard API and falls back to `document.execCommand('copy')` for
+  non-secure-context admin pages. Copy button labels now use the
+  `copy_btn` i18n key instead of the `header_copied` confirmation text.
+- **`Rescan` did not persist `DataDir` to `game_folders` when using the
+  fallback path.** Rescan now writes the current `DataDir` back to
+  `game_folders` so the next scan keeps the working set.
+- **`game_folders` not exposed in `/admin/api/admin/settings`.** The
+  effective configuration endpoint now reports the scanned folders.
+- **`responseRecorder` did not flush, blocking the SSE monitor
+  pipeline.** A `Flush()` method was added to the recorder and
+  `MonitorMiddleware` is now wired on the router.
+
 ## [0.1.2] - 2026-06-15
 
 ### Fixed
@@ -83,7 +196,8 @@ First public release.
   firewall clicks. The helper is a runtime no-op on Linux and macOS.
 - The embedded 7z helper binaries are bundled for every supported target.
 
-[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/LeGeRyChEeSe/vrhub-server/releases/tag/v0.1.0

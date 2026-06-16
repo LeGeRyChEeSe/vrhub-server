@@ -48,7 +48,7 @@ GET / HTTP/1.1
 ```json
 {
   "name": "vrhub-server",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "mode": "normal"
 }
 ```
@@ -182,11 +182,19 @@ All endpoints accept and return JSON. Pagination uses
 
 ### Updates
 
-| Method | Path                                  | Purpose                                  |
-|--------|---------------------------------------|------------------------------------------|
-| GET    | `/admin/api/update/status`            | Current version + latest release         |
-| POST   | `/admin/api/update/apply`             | Download and apply the latest release    |
-| POST   | `/admin/api/update/reset`             | Clear the staging directory              |
+| Method | Path                                  | Purpose                                                          |
+|--------|---------------------------------------|------------------------------------------------------------------|
+| GET    | `/admin/api/update/status`            | Current version, latest release, `autoApply`, `autoRestart`, `updateState`, `restartPending` |
+| POST   | `/admin/api/update/apply`             | Download and apply the latest release                            |
+| POST   | `/admin/api/update/restart`           | Restart into a previously staged binary (releases the TCP listener first) |
+| POST   | `/admin/api/update/reset`             | Clear the staging directory                                      |
+| GET    | `/admin/api/update/changelog`         | Markdown-rendered release notes (5-minute in-memory TTL)         |
+
+The status response includes a small state machine
+(`idle` / `running` / `failed` / `restart-pending`) the UI uses to
+drive the update banner and the manual restart button. The changelog
+endpoint is cached for 5 minutes to avoid burning the GitHub
+unauthenticated rate limit during development.
 
 ### Backup &amp; restore
 

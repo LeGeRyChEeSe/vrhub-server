@@ -124,7 +124,12 @@ older build? Browse
   backup / restore, real-time monitoring via SSE, embedded API
   documentation.
 - **Self-update.** On startup the server polls GitHub releases; the
-  operator can review and apply updates from the admin UI.
+  operator can review and apply updates from the admin UI. Available
+  updates surface on the Michel dashboard and on a Power `#/updates`
+  page; release notes are rendered as Markdown from a 5-minute
+  in-memory cache. After staging, an explicit
+  `POST /admin/api/update/restart` triggers a graceful port release
+  before the new binary binds, avoiding `EADDRINUSE` on Windows.
 - **Single static binary.** No external services, no Docker required.
   SQLite is compiled in (`modernc.org/sqlite`).
 - **Cross-platform builds.** Windows (amd64, arm64), Linux (amd64, arm64),
@@ -331,7 +336,8 @@ reference; the most important keys are:
 `GET /admin/api/admin/api-key`,
 `POST /admin/api/admin/api-key/regenerate`,
 `GET /admin/api/update/status`, `POST /admin/api/update/apply`,
-`POST /admin/api/update/reset`, plus the
+`POST /admin/api/update/restart`, `POST /admin/api/update/reset`,
+`GET /admin/api/update/changelog`, plus the
 `/admin/api/scripts/*` compatibility surface for the
 [VRHub](https://github.com/LeGeRyChEeSe/VRHub) bot.
 
