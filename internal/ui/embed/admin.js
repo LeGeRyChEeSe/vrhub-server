@@ -2651,29 +2651,34 @@ function setupModeSwitch() {
 document.addEventListener('modechange', function(e) {
     translatePage(e.detail.to);
     updateModeSwitchSegments();
-    // If we just switched to Michel and we're on a Power-only
-    // route, redirect to the dashboard placeholder.
-    var r = (location.hash || '').replace(/^#\//, '').trim();
-    // M-03 (review 2026-06-11): 'configuration' was a power-only
-    // route, contradicting the HTML banner #settings-readonly-banner
-    // that shows in Michel mode. Removed: configuration is now
-    // accessible in Michel as a read-only view (the form disables
-    // its inputs and hides the Save button when getMode() === 'michel').
-    var powerOnly = (r === 'games' || r === 'api-docs' || r === 'monitoring' || r === 'backup' || r === 'stats');
-    if (e.detail.to === 'michel' && powerOnly) {
-        routeTo('power-required');
-    } else {
-        // Always write body[data-route] before routeFromHash so the
-        // CSS cascade sees the correct route attribute immediately after
-        // the mode-class swap — without this, a brief window exists where
-        // body.mode-michel is set but the attribute hasn't been (re)written,
-        // which caused both #section-dashboard and the previous route
-        // section to be visible simultaneously.
-        var activeRoute = r || 'dashboard';
-        document.body.setAttribute('data-route', activeRoute);
-        // Refresh the current route so visible widgets re-fetch.
+    // Michel mode is a single-page experience: only the dashboard is
+    // visible. Any switch into Michel — whether from a Power-only
+    // route (games, api-docs, monitoring, backup, stats) or from a
+    // page that the HTML happens to share between modes
+    // (configuration, client-setup, updates) — lands on the Michel
+    // dashboard. Power mode is the only way to access those pages.
+    // The deep-link case (Michel opens /admin/#/games directly in
+    // the URL bar) is still handled by routeFromHash at boot, which
+    // redirects to the power-required warning screen.
+    if (e.detail.to === 'michel') {
+        // Clear any pending-route memory: a later mode toggle back
+        // to Power should not drag the user back to a page they
+        // left minutes ago — they'll re-pick from the nav.
+        try { sessionStorage.removeItem('vrhub:pending-route'); } catch(e) { /* no-op */ }
+        history.replaceState({}, '', location.pathname + location.search + '#/dashboard');
+        document.body.setAttribute('data-route', 'dashboard');
         routeFromHash({ skipHashUpdate: true });
+        return;
     }
+    // Power mode: keep the current route, just re-prime body[data-route]
+    // so the CSS cascade sees the correct attribute immediately after
+    // the mode-class swap. This prevents a brief window where
+    // body.mode-michel is removed but data-route still points at the
+    // previous route, which would leave a stale section visible.
+    var r = (location.hash || '').replace(/^#\//, '').trim();
+    var activeRoute = r || 'dashboard';
+    document.body.setAttribute('data-route', activeRoute);
+    routeFromHash({ skipHashUpdate: true });
 });
 
 // Story X: keep #mode-switch segments in sync with the current
