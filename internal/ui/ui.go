@@ -95,9 +95,11 @@ const adminHTMLTemplate = `<!DOCTYPE html>
     <!-- Update notification banner - hidden by default -->
     <div id="update-banner" class="update-banner" style="display: none;">
         <span class="update-banner-text">
-            Update available: <span class="version" id="update-version">v0.0.0</span> — click to update
+            <span data-i18n="update_banner_prefix">Update available:</span>
+            <span class="version" id="update-version">v0.0.0</span>
+            <span data-i18n="update_banner_suffix">— click to update</span>
         </span>
-        <button class="update-banner-btn" id="update-btn">Update Now</button>
+        <button class="update-banner-btn" id="update-btn" data-i18n="update_now_btn">Update Now</button>
     </div>
 
     <!-- Story X: UNIFIED HEADER (identical in Michel and Power modes).
@@ -339,6 +341,7 @@ const adminHTMLTemplate = `<!DOCTYPE html>
                 <div class="update-card-changelog" id="power-update-notes"></div>
                 <div class="update-card-actions" id="power-update-actions" style="margin-top: var(--space-3); display: flex; gap: var(--space-2); flex-wrap: wrap;"></div>
             </div>
+            <p id="power-no-update-msg" class="text-muted" data-i18n="updates_no_update">Aucune mise à jour disponible.</p>
             <!-- Changelog history -->
             <div class="card tiltable" id="power-changelog-card">
                 <div class="card-header">
@@ -382,8 +385,8 @@ const adminHTMLTemplate = `<!DOCTYPE html>
     <!-- Confirmation modal for update -->
     <div id="update-modal" class="modal" style="display: none;">
         <div class="modal-content">
-            <h2>Updating...</h2>
-            <p id="update-modal-message">Downloading and restarting... Do not close this window</p>
+            <h2 data-i18n="update_modal_title">Updating...</h2>
+            <p id="update-modal-message" data-i18n="update_downloading">Downloading and restarting... Do not close this window</p>
             <div class="progress-bar"><div class="progress-fill" id="update-progress"></div></div>
         </div>
     </div>
@@ -391,10 +394,10 @@ const adminHTMLTemplate = `<!DOCTYPE html>
     <!-- Restart complete page -->
     <div id="restart-page" class="restart-page" style="display: none;">
         <div class="restart-content">
-            <h2>Server Restarting</h2>
-            <p>The server is restarting with the new version.</p>
-            <p>This page will automatically refresh in <span id="countdown">10</span> seconds.</p>
-            <button class="btn" onclick="location.reload()">Reload Now</button>
+            <h2 data-i18n="restart_title">Server Restarting</h2>
+            <p data-i18n="restart_body">The server is restarting with the new version.</p>
+            <p><span data-i18n="restart_countdown_prefix">This page will automatically refresh in</span> <span id="countdown">10</span> <span data-i18n="restart_countdown_suffix">seconds.</span></p>
+            <button class="btn" onclick="location.reload()" data-i18n="restart_reload_btn">Reload Now</button>
         </div>
     </div>
 

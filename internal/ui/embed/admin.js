@@ -213,11 +213,16 @@ function fetchConfig() {
     var baseUriEl = document.getElementById('config-baseuri');
     if (!baseUriEl) return;
 
+    var _cfgAbort = new AbortController();
+    var _cfgTimeout = setTimeout(function() { _cfgAbort.abort(); }, 10000);
+
     fetch('/admin/api/admin/settings', {
+        signal: _cfgAbort.signal,
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
     })
         .then(function(r) {
+            clearTimeout(_cfgTimeout);
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         })
@@ -250,6 +255,7 @@ function fetchConfig() {
             _renderClientSetupCard(d);
         })
         .catch(function(err) {
+            clearTimeout(_cfgTimeout);
             if (window.__VRHUB_DEBUG__) {
                 console.warn('fetchConfig: failed to load /admin/api/admin/settings', err);
             }
@@ -883,13 +889,16 @@ function loadMichelClientSetupCard() {
         if (!container) return;
         if (_clientSetupCardRendered) return;
         // fetchConfig didn't populate the card — fetch independently.
+        var _snAbort = new AbortController();
+        var _snTimeout = setTimeout(function() { _snAbort.abort(); }, 10000);
         fetch('/admin/api/admin/settings', {
+            signal: _snAbort.signal,
             credentials: 'same-origin',
             headers: { 'Accept': 'application/json' }
         })
-        .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function(r) { clearTimeout(_snTimeout); if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function(data) { _renderClientSetupCard((data && data.data) || {}); })
-        .catch(function() { _renderClientSetupCardError(); });
+        .catch(function() { clearTimeout(_snTimeout); _renderClientSetupCardError(); });
     }, 300);
 }
 
@@ -974,11 +983,15 @@ function _renderClientSetupCardError() {
 async function fetchChangelog() {
     var michelContent = document.getElementById('michel-changelog-content');
     var powerContent = document.getElementById('power-changelog-content');
+    var _clAbort = new AbortController();
+    var _clTimeout = setTimeout(function() { _clAbort.abort(); }, 10000);
     try {
         var r = await fetch('/admin/api/update/changelog', {
+            signal: _clAbort.signal,
             credentials: 'same-origin',
             headers: { 'Accept': 'application/json' }
         });
+        clearTimeout(_clTimeout);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         var json = await r.json();
         var releases = json.data || [];
@@ -986,6 +999,7 @@ async function fetchChangelog() {
         if (michelContent) michelContent.innerHTML = html;
         if (powerContent) powerContent.innerHTML = html;
     } catch(e) {
+        clearTimeout(_clTimeout);
         var errHtml = '<p class="text-muted">' + i18n('changelog_error', 'Impossible de charger le changelog.') + '</p>';
         if (michelContent) michelContent.innerHTML = errHtml;
         if (powerContent) powerContent.innerHTML = errHtml;
@@ -2291,6 +2305,10 @@ function renderUpdateCard() {
             powerCard.classList.add('hidden');
         }
     }
+
+    // Empty-state message — visible when no update is staged.
+    var noUpdateMsg = document.getElementById('power-no-update-msg');
+    if (noUpdateMsg) noUpdateMsg.style.display = showCard ? 'none' : '';
 }
 
 // Populate a prefix-namespaced update card (michel- or power-).
@@ -2923,6 +2941,15 @@ var I18N_MICHEL = {
     'api_key_copied': 'Clé copiée',
     'api_key_regen_confirm': "Régénérer la clé API ? L'ancienne clé sera immédiatement invalidée.",
     'api_key_save_warning': "Copiez cette clé MAINTENANT. Elle ne sera plus jamais affichée.",
+    'update_banner_prefix': 'Mise à jour disponible :',
+    'update_banner_suffix': '— cliquer pour mettre à jour',
+    'update_modal_title': 'Mise à jour en cours…',
+    'restart_title': 'Redémarrage du serveur',
+    'restart_body': 'Le serveur redémarre avec la nouvelle version.',
+    'restart_countdown_prefix': 'Cette page se rafraîchira automatiquement dans',
+    'restart_countdown_suffix': 'secondes.',
+    'restart_reload_btn': 'Recharger maintenant',
+    'updates_no_update': 'Aucune mise à jour disponible.',
 };
 
 var I18N_POWER = {
@@ -3141,6 +3168,15 @@ var I18N_POWER = {
     'api_key_copied': 'Key copied',
     'api_key_regen_confirm': 'Regenerate API key? The old key will be immediately invalidated.',
     'api_key_save_warning': 'Copy this key NOW. It will never be shown again.',
+    'update_banner_prefix': 'Update available:',
+    'update_banner_suffix': '— click to update',
+    'update_modal_title': 'Updating...',
+    'restart_title': 'Server Restarting',
+    'restart_body': 'The server is restarting with the new version.',
+    'restart_countdown_prefix': 'This page will automatically refresh in',
+    'restart_countdown_suffix': 'seconds.',
+    'restart_reload_btn': 'Reload Now',
+    'updates_no_update': 'No updates available.',
 };
 
 function translatePage(mode) {
