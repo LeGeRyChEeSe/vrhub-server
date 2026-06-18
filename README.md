@@ -170,7 +170,8 @@ run-with-logs.bat
 ```
 
 See [`docs/INSTALL.md`](docs/INSTALL.md) for the full walkthrough
-(Windows, Linux, Docker, and a manual recovery path).
+(Windows, Linux, macOS, Android via Termux, Docker, and a manual
+recovery path).
 
 ## Build &amp; Run
 
