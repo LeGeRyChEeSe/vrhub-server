@@ -251,7 +251,7 @@ function fetchConfig() {
             // admin login password.
             var pwdVisible = document.getElementById('password-visible');
             if (pwdVisible && d.archive_password) {
-                pwdVisible.textContent = d.archive_password;
+                pwdVisible.textContent = btoa(d.archive_password);
             }
 
             // Also populate the Michel "Connecter un client" card with
@@ -921,7 +921,7 @@ function _renderClientSetupCard(d) {
 
     var baseUri = (d && d.base_uri) || '';
     var configJsonURL = baseUri ? baseUri + 'config.json' : '';
-    var pwd = (d && d.archive_password) || '';
+    var pwd = (d && d.archive_password) ? btoa(d.archive_password) : '';
     container.innerHTML = '';
 
     function makeRow(labelText, value, masked) {
@@ -1682,7 +1682,7 @@ function handleRouteClientSetup() {
             var d = (data && data.data) || {};
             var baseUri = d.base_uri || '';
             var configJsonURL = baseUri + 'config.json';
-            var pwd = d.archive_password || '';
+            var pwd = d.archive_password ? btoa(d.archive_password) : '';
             container.textContent = '';
 
             // ===== Card 1: Recommended method =====
@@ -2178,7 +2178,7 @@ function populateHeader() {
             // dedicated archive_password field (not the admin password).
             if (pwdEl && d.archive_password) {
                 pwdEl.dataset.masked = '••••••••';
-                pwdEl.dataset.plain = d.archive_password;
+                pwdEl.dataset.plain = btoa(d.archive_password);
                 pwdEl.dataset.revealed = '0';
                 pwdEl.textContent = pwdEl.dataset.masked;
             }
@@ -2894,7 +2894,7 @@ var I18N_MICHEL = {
     'config_port': 'Port',
     'config_port_help': 'Port TCP du serveur HTTP. Re-bind automatique à la sauvegarde.',
     'config_archive_password': "Mot de passe de l'archive",
-    'config_archive_password_help': "Chiffre meta.7z en AES-256. À copier dans le client VRHub. Min. 8 caractères.",
+    'config_archive_password_help': "Chiffre meta.7z en AES-256. Min. 8 caractères. La valeur encodée Base64 à coller dans le client est affichée dans la section 'Connecter un client'.",
     'config_game_folders': 'Dossiers de jeux',
     'config_game_folders_help': "Chemins absolus vers les dossiers contenant les fichiers APK/OBB. Cliquer 'Rescanner' après modification.",
     'config_add_folder': 'Ajouter un dossier',
@@ -3121,7 +3121,7 @@ var I18N_POWER = {
     'config_port': 'Port',
     'config_port_help': 'TCP port for the HTTP server. Auto re-bind on save.',
     'config_archive_password': 'Archive password',
-    'config_archive_password_help': 'Encrypts meta.7z with AES-256. Paste this in the VRHub client. Min. 8 chars.',
+    'config_archive_password_help': "Encrypts meta.7z with AES-256. Min. 8 chars. The Base64-encoded value to paste in the VRHub client is shown in the 'Connect a client' section.",
     'config_game_folders': 'Game folders',
     'config_game_folders_help': "Absolute paths to directories containing APK/OBB files. Click 'Rescan' after editing.",
     'config_add_folder': 'Add folder',
