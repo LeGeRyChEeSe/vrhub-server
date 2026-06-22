@@ -41,6 +41,11 @@ type metaCommonJSON struct {
 	Hero   string `json:"hero"`
 }
 
+// metaOculusDBJSON holds the fields we read from MetaMetadata's data/oculusdb/ files.
+type metaOculusDBJSON struct {
+	DisplayLongDescription string `json:"display_long_description"`
+}
+
 // Fetcher handles downloading and extracting metadata from a remote source.
 type Fetcher struct {
 	dataDir         string
@@ -110,20 +115,22 @@ func (f *Fetcher) SetPackageSource(fn func() []string) {
 // On network failure or other errors, it logs a warning but does not panic — graceful degradation.
 func (f *Fetcher) Fetch(ctx context.Context) error {
 	cacheDir := filepath.Join(f.dataDir, cacheDirName)
-	extracted, err := f.fetchAndExtract(ctx, cacheDir)
+	_, err := f.fetchAndExtract(ctx, cacheDir)
 	if err != nil {
 		return err
 	}
-	if extracted {
-		f.packageSourceMu.RLock()
-		fn := f.packageSource
-		f.packageSourceMu.RUnlock()
-		var packages []string
-		if fn != nil {
-			packages = fn()
-		}
-		f.enrichPackages(ctx, cacheDir, packages)
+	// Always enrich packages regardless of whether the tarball changed.
+	// Notes generation is pure file I/O (no network); image downloads are
+	// skipped when the file already exists. This ensures that games added
+	// after the last tarball refresh still get their metadata enriched.
+	f.packageSourceMu.RLock()
+	fn := f.packageSource
+	f.packageSourceMu.RUnlock()
+	var packages []string
+	if fn != nil {
+		packages = fn()
 	}
+	f.enrichPackages(ctx, cacheDir, packages)
 	return nil
 }
 
@@ -162,7 +169,7 @@ func (f *Fetcher) fetchAndExtract(ctx context.Context, cacheDir string) (bool, e
 	// Handle 304 Not Modified — cache is up to date.
 	if resp.StatusCode == http.StatusNotModified {
 		f.logger.Debug().Str("url", f.url).Msg("Metadata cache is up to date (304)")
-		return false, nil
+		return false, nil // caller still runs enrichPackages for new packages
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -295,18 +302,20 @@ func (f *Fetcher) enrichPackages(ctx context.Context, cacheDir string, packageNa
 
 		if meta.Icon != "" {
 			dest := filepath.Join(iconsDir, canonicalName+".png")
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(url, dest string) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
-					f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: icon download failed")
-					failed.Add(1)
-				} else {
-					downloaded.Add(1)
-				}
-			}(meta.Icon, dest)
+			if _, statErr := os.Stat(dest); statErr != nil {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(url, dest string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
+						f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: icon download failed")
+						failed.Add(1)
+					} else {
+						downloaded.Add(1)
+					}
+				}(meta.Icon, dest)
+			}
 		}
 
 		thumbURL := meta.Square
@@ -315,18 +324,20 @@ func (f *Fetcher) enrichPackages(ctx context.Context, cacheDir string, packageNa
 		}
 		if thumbURL != "" {
 			dest := filepath.Join(thumbsDir, canonicalName+".jpg")
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(url, dest string) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
-					f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: thumbnail download failed")
-					failed.Add(1)
-				} else {
-					downloaded.Add(1)
-				}
-			}(thumbURL, dest)
+			if _, statErr := os.Stat(dest); statErr != nil {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(url, dest string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					if err := f.downloadImage(ctx, imgClient, url, dest); err != nil {
+						f.logger.Debug().Err(err).Str("dest", dest).Msg("metadata: thumbnail download failed")
+						failed.Add(1)
+					} else {
+						downloaded.Add(1)
+					}
+				}(thumbURL, dest)
+			}
 		}
 	}
 
@@ -336,6 +347,53 @@ func (f *Fetcher) enrichPackages(ctx context.Context, cacheDir string, packageNa
 		Int64("failed", failed.Load()).
 		Int("packages", len(packageNames)).
 		Msg("metadata: image download complete")
+
+	// Generate notes files from oculusdb descriptions (no network I/O — pure file parsing).
+	oculusDBDir := filepath.Join(base, "data", "oculusdb")
+	if _, statErr := os.Stat(oculusDBDir); statErr == nil {
+		notesDir := filepath.Join(cacheDir, "notes")
+		if mkErr := os.MkdirAll(notesDir, 0755); mkErr != nil {
+			f.logger.Warn().Err(mkErr).Msg("metadata: failed to create notes dir")
+		} else {
+			var notesWritten, notesSkipped int
+			for _, pkg := range packageNames {
+				select {
+				case <-ctx.Done():
+					f.logger.Info().Msg("metadata: notes generation cancelled")
+					return
+				default:
+				}
+
+				// MetaMetadata uses both "pkg.json" and ".pkg.json" naming conventions.
+				var raw []byte
+				if d, readErr := os.ReadFile(filepath.Join(oculusDBDir, pkg+".json")); readErr == nil {
+					raw = d
+				} else if d, readErr := os.ReadFile(filepath.Join(oculusDBDir, "."+pkg+".json")); readErr == nil {
+					raw = d
+				} else {
+					notesSkipped++
+					continue
+				}
+
+				var oDB metaOculusDBJSON
+				if jsonErr := json.Unmarshal(raw, &oDB); jsonErr != nil || oDB.DisplayLongDescription == "" {
+					notesSkipped++
+					continue
+				}
+
+				notesPath := filepath.Join(notesDir, pkg+".txt")
+				if writeErr := os.WriteFile(notesPath, []byte(oDB.DisplayLongDescription), 0644); writeErr != nil {
+					f.logger.Debug().Err(writeErr).Str("package", pkg).Msg("metadata: notes write failed")
+				} else {
+					notesWritten++
+				}
+			}
+			f.logger.Info().
+				Int("written", notesWritten).
+				Int("skipped", notesSkipped).
+				Msg("metadata: notes generation complete")
+		}
+	}
 }
 
 // downloadImage fetches a single image URL and writes it to dest.

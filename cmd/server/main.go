@@ -234,6 +234,24 @@ func main() {
 				return pkgs
 			})
 
+			// Always enrich on startup: regenerate notes/images from the
+			// already-extracted MetaMetadata cache without any network I/O.
+			// This covers games added since the last tarball refresh.
+			go func() {
+				enrichCtx, enrichCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer enrichCancel()
+				games, dbErr := gameDB.ListAllGamesOrderedByName()
+				if dbErr != nil {
+					vlog.Get().Warn().Err(dbErr).Msg("startup enrich: failed to list games")
+					return
+				}
+				pkgs := make([]string, 0, len(games))
+				for _, g := range games {
+					pkgs = append(pkgs, g.PackageName)
+				}
+				metaFetcher.EnrichGames(enrichCtx, pkgs)
+			}()
+
 			if metaFetcher.IsRefreshOverdue() {
 				vlog.Get().Info().Msg("Metadata refresh overdue on startup, fetching now")
 				go func() {

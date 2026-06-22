@@ -640,6 +640,22 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 			return
 		}
 
+		// Handle hash-level metadata files (notes.txt, thumbnail.jpg) before
+		// package name validation. These are single-component paths (no "/")
+		// served directly from the metadata cache, not from game directories.
+		// The VRHub client fetches notes.txt directly for descriptions, and
+		// discovers screenshot images (*.jpg) from the package listing hrefs.
+		if !strings.Contains(path, "/") {
+			switch {
+			case path == "notes.txt":
+				serveNotesFile(w, r, deps, game)
+				return
+			case isImageExtension(path):
+				serveMetadataImage(w, r, deps, game, path)
+				return
+			}
+		}
+
 		// Verify package name matches the game's package_name in DB
 		if pkgName != game.PackageName {
 			log.Debug().Str("hash", hash).Str("pkg", pkgName).Str("expected_pkg", game.PackageName).Msg("package name mismatch")
@@ -689,6 +705,78 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 	}
 }
 
+// isImageExtension reports whether filename ends with a client-recognized image extension.
+func isImageExtension(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".jpg" || ext == ".jpeg" || ext == ".png"
+}
+
+// serveNotesFile serves the game's description text from the metadata cache.
+// Called for GET /{hash}/notes.txt requests.
+func serveNotesFile(w http.ResponseWriter, r *http.Request, deps fileServerDeps, game *types.GameEntry) {
+	if deps.Config == nil {
+		http.NotFound(w, r)
+		return
+	}
+	notesPath := filepath.Join(deps.Config.DataDir, "metadata", "notes", game.PackageName+".txt")
+	info, err := os.Stat(notesPath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := os.ReadFile(notesPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data) //nolint:errcheck
+}
+
+// serveMetadataImage serves a known metadata image (e.g. thumbnail.jpg) from the
+// metadata cache. Called for GET /{hash}/{imagename} requests where imagename is
+// a recognized metadata image filename. Unknown names return 404.
+func serveMetadataImage(w http.ResponseWriter, r *http.Request, deps fileServerDeps, game *types.GameEntry, filename string) {
+	if deps.Config == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var imagePath string
+	switch filename {
+	case "thumbnail.jpg":
+		imagePath = filepath.Join(deps.Config.DataDir, "metadata", "thumbnails", game.PackageName+".jpg")
+	default:
+		http.NotFound(w, r)
+		return
+	}
+
+	info, err := os.Stat(imagePath)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+
+	f, err := os.Open(imagePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	contentType := "image/jpeg"
+	if ext == ".png" {
+		contentType = "image/png"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, f) //nolint:errcheck
+}
+
 // servePackageListing generates HTML with links to package subdirectories.
 func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServerDeps, game *types.GameEntry) {
 	packages, err := deps.FileDB.ListPackagesByHash(game.Hash)
@@ -711,6 +799,20 @@ func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServer
 		for _, pkg := range packages {
 			encodedPkg := url.PathEscape(pkg)
 			fmt.Fprintf(w, "<li><a href=\"%s/\">%s/</a></li>\n", encodedPkg, htmlEscapeString(pkg))
+		}
+	}
+
+	// Expose metadata files so the VRHub client can discover them from the listing.
+	// The client parses href links ending in .jpg/.png/.jpeg as screenshot URLs,
+	// and fetches notes.txt directly for the game description.
+	if deps.Config != nil {
+		thumbPath := filepath.Join(deps.Config.DataDir, "metadata", "thumbnails", game.PackageName+".jpg")
+		if info, statErr := os.Stat(thumbPath); statErr == nil && !info.IsDir() {
+			fmt.Fprintf(w, "<li><a href=\"thumbnail.jpg\">thumbnail.jpg</a></li>\n")
+		}
+		notesPath := filepath.Join(deps.Config.DataDir, "metadata", "notes", game.PackageName+".txt")
+		if info, statErr := os.Stat(notesPath); statErr == nil && !info.IsDir() {
+			fmt.Fprintf(w, "<li><a href=\"notes.txt\">notes.txt</a></li>\n")
 		}
 	}
 
