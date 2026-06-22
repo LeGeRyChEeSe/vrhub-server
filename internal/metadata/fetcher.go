@@ -23,9 +23,9 @@ import (
 const (
 	defaultMetadataURL     = "https://github.com/threethan/MetaMetadata/archive/refs/heads/main.tar.gz"
 	cacheDirName           = "metadata"
-	maxRetries      = 3
-	baseRetryDelay  = 1 * time.Second
-	maxFileSize     = 500 * 1024 * 1024 // 500MB per file
+	maxRetries             = 3
+	baseRetryDelay         = 1 * time.Second
+	maxFileSize            = 500 * 1024 * 1024 // 500MB per file
 	etagFile               = ".etag"
 	lastModifiedFile       = ".last_modified"
 	lastRefreshFile        = ".last_refresh"
