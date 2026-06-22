@@ -172,6 +172,8 @@ package.json
 _debug-artifacts/
 # Local test data directory (fresh data-dir used for live audit runs)
 .test-data/
+.fresh-install/
+tmp-fresh-install/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

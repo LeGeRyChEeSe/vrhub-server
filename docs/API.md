@@ -48,7 +48,7 @@ GET / HTTP/1.1
 ```json
 {
   "name": "vrhub-server",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "mode": "normal"
 }
 ```
@@ -57,16 +57,21 @@ GET / HTTP/1.1
 
 Bootstrap endpoint. Returns the client configuration that the
 VRHub client needs to talk to this server: the `baseUri` and the
-cleartext `archive_password`. The file is served on every request so
-the operator can rotate the password by editing `config.toml` and
-restarting the server.
+`archive_password` encoded as Base64. The file is served on every
+request so the operator can rotate the password by editing
+`config.toml` and restarting the server.
 
 ```json
 {
   "baseUri": "http://192.0.2.10:39457/",
-  "password": "your-cleartext-archive-password"
+  "password": "eW91ci1hcmNoaXZlLXBhc3N3b3Jk"
 }
 ```
+
+The `password` field is the Base64 encoding of the cleartext
+`archive_password` set in `config.toml`. The admin UI displays
+this same Base64 value in all client-facing views so that manual
+entry matches what this endpoint returns.
 
 ### `GET /meta.7z`
 
@@ -86,6 +91,18 @@ HTML directory listing of the package subdirectories the server
 exposes for the given `{hash}`. The page is a self-contained HTML
 document with a single table; the VRHub client does not parse it,
 it is here for human operators and the legacy VRHub "browse" UI.
+
+### `GET /{hash}/notes.txt`
+
+Plain-text game description sourced from OculusDB. Regenerated
+automatically when metadata is refreshed. Returns `404` if no
+description is available for the game.
+
+### `GET /{hash}/thumbnail.jpg`
+
+Game thumbnail image sourced from the MetaMetadata CDN. Cached
+on disk and served directly. Returns `404` if no image has been
+downloaded yet.
 
 ### `GET /{hash}/{packageName}/`
 

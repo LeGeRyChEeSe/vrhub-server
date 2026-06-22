@@ -42,10 +42,15 @@ the **TEST** button.
 Pick **Manual Entry** mode in the client and add the two keys
 yourself:
 
-| Key       | Value                                            |
-|-----------|--------------------------------------------------|
-| `baseUri` | `http://192.0.2.10:39457/` (your server URL)     |
-| `password`| `<archive_password from your config.toml>`       |
+| Key       | Value                                                                       |
+|-----------|-----------------------------------------------------------------------------|
+| `baseUri` | `http://192.0.2.10:39457/` (your server URL)                                |
+| `password`| The **Base64-encoded** archive password shown in the admin UI               |
+
+The admin UI displays the Base64 value in all client-facing cards
+(dashboard chip, client setup card). Do **not** paste the raw
+password from `config.toml` — the client expects the Base64 form
+that `/config.json` returns.
 
 Press **ADD KEY** after each entry, then **TEST** to verify the
 connection.
@@ -128,8 +133,10 @@ does not match `[admin].archive_password` in `config.toml`.
 
 ### `meta.7z` is rejected by the client
 
-The archive password is case-sensitive. Re-copy it from
-`config.toml` and re-add the key in the client.
+The client expects the **Base64-encoded** form of the archive
+password, not the raw value from `config.toml`. Copy the password
+from the admin UI (dashboard chip or client setup card) and
+re-add the key in the client.
 
 ### Setup mode is stuck
 

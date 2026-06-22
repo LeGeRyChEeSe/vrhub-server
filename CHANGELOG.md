@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-06-23
+
+### Added
+
+- Games are now automatically enriched with a description and thumbnail fetched from OculusDB. Both are served via new endpoints (`/{hash}/notes.txt`, `/{hash}/thumbnail.jpg`) for VRHub client discovery.
+
+### Fixed
+
+- Metadata image downloads are now scoped to imported games only, instead of processing the entire OculusDB catalog (~3,000 entries) on every startup.
+- Pre-existing games (imported before this update) now have their icons backfilled automatically on first startup.
+- Fixed manual client setup (baseUri + password fields) being broken due to the archive password being displayed in plaintext in the UI while `/config.json` returns it Base64-encoded. The UI now shows the Base64 value everywhere it is client-facing. The settings form still uses plaintext.
+
 ## [0.1.3] - 2026-06-16
 
 ### Added
@@ -196,7 +208,8 @@ First public release.
   firewall clicks. The helper is a runtime no-op on Linux and macOS.
 - The embedded 7z helper binaries are bundled for every supported target.
 
-[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.0...v0.1.1

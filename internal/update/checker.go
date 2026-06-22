@@ -500,7 +500,7 @@ func (v Version) String() string {
 }
 
 // CurrentVersion returns the currently running version of vrhub-server.
-var CurrentVersion = Version{Major: 0, Minor: 1, Patch: 3}
+var CurrentVersion = Version{Major: 0, Minor: 1, Patch: 4}
 
 // SetCurrentVersion sets the current version (typically from build ldflags).
 func SetCurrentVersion(v Version) {
