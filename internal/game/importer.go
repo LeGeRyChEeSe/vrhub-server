@@ -567,6 +567,52 @@ func (gm *GameManager) RevalidateGame(ctx context.Context, filePath, packageName
 	return false, nil
 }
 
+// BackfillMissingIcons extracts icons from APKs for games in the database that
+// don't yet have an icon file in {dataDir}/metadata/icons/. Run in background
+// after startup scan so it doesn't block the server from serving requests.
+func (gm *GameManager) BackfillMissingIcons(ctx context.Context) {
+	games, err := gm.database.ListAllGamesOrderedByName()
+	if err != nil {
+		vlog.Get().Warn().Err(err).Msg("backfill icons: failed to list games")
+		return
+	}
+
+	iconDir := filepath.Join(gm.dataDir, "metadata", "icons")
+	var extracted, skipped, failed int
+
+	for _, game := range games {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if game.ApkPath == "" || game.PackageName == "" || game.Corrupted {
+			skipped++
+			continue
+		}
+
+		iconPath := filepath.Join(iconDir, game.PackageName+".png")
+		if _, statErr := os.Stat(iconPath); statErr == nil {
+			skipped++
+			continue
+		}
+
+		if err := ExtractAPKIcon(game.ApkPath, iconPath); err != nil {
+			vlog.Get().Debug().Err(err).Str("package", game.PackageName).Msg("backfill icons: extraction failed")
+			failed++
+		} else {
+			extracted++
+		}
+	}
+
+	vlog.Get().Info().
+		Int("extracted", extracted).
+		Int("skipped", skipped).
+		Int("failed", failed).
+		Msg("backfill icons: complete")
+}
+
 // ExtractPackageNameFromPath extracts the package name from an APK file path.
 // e.g., "/data/games/com.example.game.apk" -> "com.example.game"
 // Handles case-insensitive .apk/.APK extensions (Fix #14 Round 11)

@@ -165,7 +165,7 @@ func (h *AdminHandler) handleSettingsJSON(w http.ResponseWriter, r *http.Request
 	// the in-memory cache should not be able to recover the
 	// plaintext).
 	if sess, ok := auth.SessionFromContext(r.Context()); ok && sess != nil {
-		vlog.Get().Warn().
+		vlog.Get().Info().
 			Str("event", "admin_password_reveal").
 			Str("session_id_prefix", sessionIDPrefix(sess.ID)).
 			Str("username", sess.Username).
@@ -174,7 +174,7 @@ func (h *AdminHandler) handleSettingsJSON(w http.ResponseWriter, r *http.Request
 		// No session in ctx (shouldn't happen — the route is behind
 		// SessionAuthMiddleware — but log defensively so the audit
 		// trail is consistent).
-		vlog.Get().Warn().
+		vlog.Get().Info().
 			Str("event", "admin_password_reveal").
 			Str("session_id_prefix", "anonymous").
 			Msg("admin password plaintext exposed via /admin/api/admin/settings (no session in ctx)")
@@ -219,13 +219,13 @@ func (h *AdminHandler) handleSettingsJSON(w http.ResponseWriter, r *http.Request
 	// The value is audit-logged at Warn level whenever it is read.
 	if cfg.Admin.ArchivePassword != "" {
 		if sess, ok := auth.SessionFromContext(r.Context()); ok && sess != nil {
-			vlog.Get().Warn().
+			vlog.Get().Info().
 				Str("event", "archive_password_reveal").
 				Str("session_id_prefix", sessionIDPrefix(sess.ID)).
 				Str("username", sess.Username).
 				Msg("archive password revealed via admin settings endpoint")
 		} else {
-			vlog.Get().Warn().
+			vlog.Get().Info().
 				Str("event", "archive_password_reveal").
 				Str("session_id_prefix", "anonymous").
 				Msg("archive password revealed via admin settings endpoint (no session in ctx)")

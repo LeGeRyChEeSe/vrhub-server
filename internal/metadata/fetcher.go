@@ -23,10 +23,9 @@ import (
 const (
 	defaultMetadataURL     = "https://github.com/threethan/MetaMetadata/archive/refs/heads/main.tar.gz"
 	cacheDirName           = "metadata"
-	maxRetries             = 3
-	baseRetryDelay         = 1 * time.Second
-	downloadTimeout        = 30 * time.Second
-	maxFileSize            = 500 * 1024 * 1024 // 500MB per file
+	maxRetries      = 3
+	baseRetryDelay  = 1 * time.Second
+	maxFileSize     = 500 * 1024 * 1024 // 500MB per file
 	etagFile               = ".etag"
 	lastModifiedFile       = ".last_modified"
 	lastRefreshFile        = ".last_refresh"
@@ -56,6 +55,8 @@ type Fetcher struct {
 	stopped         atomic.Bool
 	shutdownCtx     context.Context
 	shutdownCancel  context.CancelFunc
+	packageSource   func() []string
+	packageSourceMu sync.RWMutex
 }
 
 // NewFetcher creates a new Fetcher with the given data directory, optional URL override, and refresh interval.
@@ -72,10 +73,14 @@ func NewFetcher(dataDir string, url string, refreshInterval time.Duration) *Fetc
 	return &Fetcher{
 		dataDir: dataDir,
 		url:     url,
+		// No Timeout on the client: the tarball can be large (~30 MB+) and
+		// a per-request deadline would fire before the body is fully read.
+		// The caller's context (10-minute startup timeout or shutdown ctx)
+		// is the sole guard against hung connections.
 		httpClient: &http.Client{
-			Timeout: downloadTimeout,
 			Transport: &http.Transport{
-				DisableKeepAlives: true,
+				DisableKeepAlives:     true,
+				ResponseHeaderTimeout: 30 * time.Second,
 			},
 		},
 		logger:          vlog.Get(),
@@ -87,9 +92,19 @@ func NewFetcher(dataDir string, url string, refreshInterval time.Duration) *Fetc
 	}
 }
 
+// SetPackageSource registers a callback that returns the current list of package
+// names to enrich with images after each successful metadata download. Only
+// packages returned by fn will have their icons/thumbnails downloaded.
+// If fn is nil (the default), no image downloads are performed.
+func (f *Fetcher) SetPackageSource(fn func() []string) {
+	f.packageSourceMu.Lock()
+	f.packageSource = fn
+	f.packageSourceMu.Unlock()
+}
+
 // Fetch downloads and extracts the metadata tarball, then downloads game images
-// from the MetaMetadata CDN URLs concurrently. The image download runs outside
-// the mutex so it does not block concurrent callers for its full duration.
+// from the MetaMetadata CDN URLs — but only for the packages returned by the
+// registered PackageSource callback (see SetPackageSource).
 //
 // It supports conditional requests (ETag/Last-Modified) to avoid unnecessary downloads.
 // On network failure or other errors, it logs a warning but does not panic — graceful degradation.
@@ -100,9 +115,24 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 		return err
 	}
 	if extracted {
-		f.processMetadataJSONs(ctx, cacheDir)
+		f.packageSourceMu.RLock()
+		fn := f.packageSource
+		f.packageSourceMu.RUnlock()
+		var packages []string
+		if fn != nil {
+			packages = fn()
+		}
+		f.enrichPackages(ctx, cacheDir, packages)
 	}
 	return nil
+}
+
+// EnrichGames downloads icons and thumbnails from the MetaMetadata CDN for the
+// given package names, using the local cache. Call Fetch first to ensure the
+// cache is up-to-date.
+func (f *Fetcher) EnrichGames(ctx context.Context, packageNames []string) {
+	cacheDir := filepath.Join(f.dataDir, cacheDirName)
+	f.enrichPackages(ctx, cacheDir, packageNames)
 }
 
 // fetchAndExtract holds the mutex and performs the download + tarball extraction.
@@ -179,15 +209,31 @@ func findCommonDataDir(cacheDir string) string {
 	return ""
 }
 
-// processMetadataJSONs reads every JSON file in data/common/, downloads the icon
-// and thumbnail images from their CDN URLs, and writes them to
-// {cacheDir}/icons/{releaseName}.png and {cacheDir}/thumbnails/{releaseName}.jpg.
+// enrichPackages downloads icons and thumbnails from the MetaMetadata CDN for
+// the given package names. If packageNames is nil or empty, the function is a
+// no-op (no images are downloaded). Pass the packages returned by the
+// PackageSource callback to restrict downloads to games the operator has imported.
+//
+// Files are written to {cacheDir}/icons/{packageName}.png and
+// {cacheDir}/thumbnails/{packageName}.jpg.
 // Failures are logged at Debug level and do not abort the process.
-func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
+func (f *Fetcher) enrichPackages(ctx context.Context, cacheDir string, packageNames []string) {
+	if len(packageNames) == 0 {
+		return
+	}
+
 	base := findCommonDataDir(cacheDir)
 	if base == "" {
 		f.logger.Debug().Str("cache_dir", cacheDir).Msg("metadata: MetaMetadata common dir not found, skipping image download")
 		return
+	}
+
+	// Build a lookup set that covers both "pkg.json" and ".pkg.json" naming
+	// conventions used by MetaMetadata.
+	pkgSet := make(map[string]bool, len(packageNames)*2)
+	for _, p := range packageNames {
+		pkgSet[p] = true
+		pkgSet["."+p] = true
 	}
 
 	commonDir := filepath.Join(base, "data", "common")
@@ -228,8 +274,16 @@ func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
 		}
 
 		releaseName := strings.TrimSuffix(e.Name(), ".json")
-		jsonPath := filepath.Join(commonDir, e.Name())
 
+		// Skip packages not in the operator's library.
+		if !pkgSet[releaseName] {
+			continue
+		}
+
+		// Canonical name without the leading dot (used for output file names).
+		canonicalName := strings.TrimPrefix(releaseName, ".")
+
+		jsonPath := filepath.Join(commonDir, e.Name())
 		raw, err := os.ReadFile(jsonPath)
 		if err != nil {
 			continue
@@ -240,7 +294,7 @@ func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
 		}
 
 		if meta.Icon != "" {
-			dest := filepath.Join(iconsDir, releaseName+".png")
+			dest := filepath.Join(iconsDir, canonicalName+".png")
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(url, dest string) {
@@ -260,7 +314,7 @@ func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
 			thumbURL = meta.Hero
 		}
 		if thumbURL != "" {
-			dest := filepath.Join(thumbsDir, releaseName+".jpg")
+			dest := filepath.Join(thumbsDir, canonicalName+".jpg")
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(url, dest string) {
@@ -280,6 +334,7 @@ func (f *Fetcher) processMetadataJSONs(ctx context.Context, cacheDir string) {
 	f.logger.Info().
 		Int64("downloaded", downloaded.Load()).
 		Int64("failed", failed.Load()).
+		Int("packages", len(packageNames)).
 		Msg("metadata: image download complete")
 }
 
@@ -490,7 +545,7 @@ func (f *Fetcher) extractFile(ctx context.Context, destPath string, reader io.Re
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("metadata fetcher: close file %s: %w", destPath, err)
 	}
-	vlog.Get().Info().Int64("bytes", written).Str("file", destPath).Msg("Extracted metadata file")
+	vlog.Get().Debug().Int64("bytes", written).Str("file", destPath).Msg("Extracted metadata file")
 	return nil
 }
 
@@ -591,6 +646,16 @@ func (f *Fetcher) saveLastRefreshTime() error {
 		return fmt.Errorf("metadata fetcher: save last refresh time: %w", err)
 	}
 	return nil
+}
+
+// IsRefreshOverdue reports whether the cache has not been refreshed within the
+// configured interval. Returns true when the timestamp file is missing.
+func (f *Fetcher) IsRefreshOverdue() bool {
+	lastRefresh, err := f.GetLastRefreshTime()
+	if err != nil {
+		return true
+	}
+	return time.Unix(lastRefresh, 0).Before(time.Now().Add(-f.refreshInterval))
 }
 
 // GetLastRefreshTime reads the last refresh timestamp from disk.

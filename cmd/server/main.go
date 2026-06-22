@@ -103,7 +103,9 @@ func main() {
 		defer gameDB.Close()
 	}
 
-	// Start metadata fetcher in background (normal mode only).
+	// Create metadata fetcher (normal mode only). The startup fetch and
+	// package-source wiring happen after the game-folder scan so the DB is
+	// fully populated before the first image-download pass.
 	var metaFetcher *metadata.Fetcher
 	if mode == types.ModeNormal && cfg != nil {
 		refreshInterval := cfg.Metadata.RefreshInterval
@@ -111,21 +113,6 @@ func main() {
 			refreshInterval = 24 * time.Hour
 		}
 		metaFetcher = metadata.NewFetcher(dataDir, cfg.Metadata.URL, refreshInterval)
-
-		// Check if last refresh was overdue on startup.
-		if lastRefresh, err := metaFetcher.GetLastRefreshTime(); err == nil {
-			overdueThreshold := time.Now().Add(-refreshInterval)
-			if time.Unix(lastRefresh, 0).Before(overdueThreshold) {
-				vlog.Get().Info().Time("last_refresh", time.Unix(lastRefresh, 0)).Msg("Metadata refresh overdue on startup, fetching now")
-				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-					defer cancel()
-					if err := metaFetcher.Fetch(ctx); err != nil {
-						vlog.Get().Warn().Err(err).Msg("Startup metadata refresh failed")
-					}
-				}()
-			}
-		}
 
 		// Start scheduled background refresh (unbounded context, controlled by Stop()).
 		go func() {
@@ -223,6 +210,39 @@ func main() {
 				vlog.Get().Info().
 					Int("updated", bfUpdated).
 					Msg("startup scan: phase 2 (legacy backfill) complete")
+			}
+		}
+
+		// Backfill icons extracted from APKs for games that were imported
+		// before icon extraction was wired up (or whose icon was never saved).
+		// Runs in the background so it doesn't delay startup.
+		go gameManager.BackfillMissingIcons(context.Background())
+
+		// Wire metadata fetcher to the game DB so image downloads are scoped
+		// to the operator's library, then trigger a startup fetch if overdue.
+		// Done here — after the scan — so the DB is fully populated.
+		if metaFetcher != nil {
+			metaFetcher.SetPackageSource(func() []string {
+				games, dbErr := gameDB.ListAllGamesOrderedByName()
+				if dbErr != nil {
+					return nil
+				}
+				pkgs := make([]string, 0, len(games))
+				for _, g := range games {
+					pkgs = append(pkgs, g.PackageName)
+				}
+				return pkgs
+			})
+
+			if metaFetcher.IsRefreshOverdue() {
+				vlog.Get().Info().Msg("Metadata refresh overdue on startup, fetching now")
+				go func() {
+					fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+					defer fetchCancel()
+					if err := metaFetcher.Fetch(fetchCtx); err != nil {
+						vlog.Get().Warn().Err(err).Msg("Startup metadata refresh failed")
+					}
+				}()
 			}
 		}
 
