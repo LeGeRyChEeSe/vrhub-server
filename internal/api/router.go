@@ -234,7 +234,7 @@ func SetupMode503Handler(modeVal *atomic.Value) func(http.Handler) http.Handler 
 // MetaMetadata). nil is acceptable in test wiring; the
 // /admin/api/network-status handler returns 503 NOT_CONFIGURED
 // when nil.
-func SetupRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *types.Config, sessionStore *auth.SessionStore, reloader Reloader, updatePusher UpdateConfigPusher, netChecker *network.Checker, monitorBus *monitor.EventBus) *chi.Mux {
+func SetupRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *types.Config, sessionStore *auth.SessionStore, reloader Reloader, updatePusher UpdateConfigPusher, netChecker *network.Checker, monitorBus *monitor.EventBus, gameFoldersChangedHook func([]string)) *chi.Mux {
 	// Register the docs HTML renderer before any route handler can
 	// call `ui.AdminDocsHTML()`. (R6.6-PATCH-2)
 	RegisterDocsHTMLRenderer()
@@ -269,7 +269,7 @@ func SetupRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *type
 	publicHandler := MountPublicRoutes(publicRouter, modeVal, gameDB, cfg)
 
 	// Admin routes protected by setup mode middleware and session auth.
-	r.Mount("/admin", setupAdminRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, publicHandler))
+	r.Mount("/admin", setupAdminRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, publicHandler, gameFoldersChangedHook))
 
 	r.Mount("/", publicRouter)
 
@@ -294,7 +294,7 @@ func SetupRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *type
 	return r
 }
 
-func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *types.Config, sessionStore *auth.SessionStore, reloader Reloader, updatePusher UpdateConfigPusher, netChecker *network.Checker, monitorBus *monitor.EventBus, publicHandler *PublicAPIHandler) *chi.Mux {
+func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg *types.Config, sessionStore *auth.SessionStore, reloader Reloader, updatePusher UpdateConfigPusher, netChecker *network.Checker, monitorBus *monitor.EventBus, publicHandler *PublicAPIHandler, gameFoldersChangedHook func([]string)) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(SetupModeMiddleware(modeVal))
 
@@ -517,6 +517,12 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			adminHandler.OnConfigUpdated = func(newCfg *types.Config) {
 				publicHandler.Config = newCfg
 			}
+		}
+		// Story 3.5 (AC3): wire the game-folders-changed hook so a
+		// settings save that mutates game_folders restarts the file
+		// watcher on the new set. nil in test wiring / setup mode.
+		if gameFoldersChangedHook != nil {
+			adminHandler.OnGameFoldersChanged = gameFoldersChangedHook
 		}
 		r.Post("/api/auth/login", adminHandler.HandleAuthLoginPOST)
 		r.Post("/api/auth/logout", adminHandler.HandleAuthLogoutPOST)

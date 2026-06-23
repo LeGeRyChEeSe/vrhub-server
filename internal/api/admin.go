@@ -110,6 +110,13 @@ type AdminHandler struct {
 	// PublicAPIHandler) to refresh their own Config pointer without
 	// polling. nil in test wiring.
 	OnConfigUpdated func(*types.Config)
+
+	// OnGameFoldersChanged is called by HandleSettingsPUT after a
+	// successful save when the game_folders set actually changed. The
+	// production wiring (cmd/server/main.go) restarts the file watcher
+	// on the new folder set without a server restart (Story 3.5 AC3).
+	// nil in test wiring and setup mode.
+	OnGameFoldersChanged func([]string)
 }
 
 // NewAdminHandler creates a new AdminHandler with optional session store and config.

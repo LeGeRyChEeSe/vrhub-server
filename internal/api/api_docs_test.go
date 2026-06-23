@@ -275,7 +275,7 @@ func TestEndpointCatalog_AllRoutersReachable(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, tmpDir, gameDB, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, tmpDir, gameDB, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Pass 1: collect (method, pattern) pairs from the full router.
 	registered := make(map[string]bool) // key = "METHOD pattern"
@@ -370,7 +370,7 @@ func TestEndpointCatalog_NoUndocumentedRoutes(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, tmpDir, gameDB, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, tmpDir, gameDB, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Build a set of catalog (method, path) pairs for fast lookup.
 	catalogPairs := make(map[string]bool)
@@ -524,7 +524,7 @@ func TestSetupRouter_DocsRoute_PowerUserOnly(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// 1. GET /admin/api/docs WITHOUT ?mode=power and WITHOUT X-Power-Mode
 	//    -> 404 (AC2: Michel mode returns 404). The session middleware

@@ -469,7 +469,7 @@ func TestSetupRouter_ExposedToggleRouteRegistered(t *testing.T) {
 	// The new contract: a real session store is required to mount protected
 	// routes, mirroring the production main.go wiring.
 	sessionStore := newTestSessionStore(t)
-	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	// M-06 (review 2026-06-11): this test asserts the route IS
 	// registered. We intentionally do NOT attach a session cookie

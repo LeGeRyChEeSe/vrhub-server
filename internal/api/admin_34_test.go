@@ -401,7 +401,7 @@ func TestSetupRouter_GamesListRouteRegistered(t *testing.T) {
 	// (otherwise they would be exposed without auth). Use a real session
 	// store to mirror production wiring.
 	sessionStore := newTestSessionStore(t)
-	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/api/games", nil)
 	w := httptest.NewRecorder()
@@ -435,7 +435,7 @@ func TestSetupRouter_GameDeleteRouteRegistered(t *testing.T) {
 
 	// R11-HIGH-4: see TestSetupRouter_GamesListRouteRegistered.
 	sessionStore := newTestSessionStore(t)
-	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), d, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/api/games/com.example.game", nil)
 	w := httptest.NewRecorder()
