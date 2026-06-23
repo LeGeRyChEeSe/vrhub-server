@@ -26,6 +26,7 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/metadata"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/monitor"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/network"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/trailers"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/update"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
@@ -217,6 +218,22 @@ func main() {
 		// before icon extraction was wired up (or whose icon was never saved).
 		// Runs in the background so it doesn't delay startup.
 		go gameManager.BackfillMissingIcons(context.Background())
+
+		// Story 11.1 (Task 5): resolve trailer URLs for games that still have
+		// none. Best-effort and non-blocking: runs in the background so it
+		// never delays startup. The operator-override sidecar is already
+		// applied at import time; this fills the remaining gaps via the
+		// oculusdb best-effort step and the optional YouTube Data API.
+		go func() {
+			resolveCtx, resolveCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer resolveCancel()
+			resolver := trailers.New(filepath.Join(dataDir, "metadata"))
+			if n, rErr := resolver.ResolveMissing(resolveCtx, gameDB, cfg); rErr != nil {
+				vlog.Get().Warn().Err(rErr).Msg("startup: trailer resolution completed with errors")
+			} else if n > 0 {
+				vlog.Get().Info().Int("resolved", n).Msg("startup: trailer URLs resolved")
+			}
+		}()
 
 		// Wire metadata fetcher to the game DB so image downloads are scoped
 		// to the operator's library, then trigger a startup fetch if overdue.

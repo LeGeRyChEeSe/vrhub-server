@@ -18,6 +18,7 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/game"
 	vlog "github.com/LeGeRyChEeSe/vrhub-server/internal/log"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/trailers"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -391,6 +392,11 @@ func (h *SetupHandler) HandleScanPOST(w http.ResponseWriter, r *http.Request) {
 		if len(gp.OBBFiles) > 0 {
 			gameEntry.OBBPath = gp.OBBFiles[0].Path
 		}
+
+		// Story 11.1 (Task 4): pick up an operator trailer-override sidecar
+		// ("{releaseName}.trailer" or "trailer.url") next to the APK during
+		// the initial setup scan, mirroring the importer's rescan path.
+		gameEntry.TrailerURL = trailers.ReadOverrideForDir(filepath.Dir(gp.APKFile.Path), gameEntry.ReleaseName)
 
 		if insertErr := dbConn.InsertGameTx(tx, gameEntry); insertErr != nil {
 			tx.Rollback()
