@@ -57,6 +57,13 @@ type settingsUpdateRequest struct {
 		RefreshInterval string `json:"refresh_interval"`
 		URL             string `json:"url"`
 	} `json:"metadata"`
+	// Story 11.1: the trailer language (global dropdown). youtube_api_key
+	// is accepted too (empty preserves the existing value, like the update
+	// github_token field) but is never echoed back in any GET response.
+	Trailer struct {
+		Language      string `json:"language"`
+		YouTubeAPIKey string `json:"youtube_api_key"`
+	} `json:"trailer"`
 	// Story 9.8 follow-up: allow changing the archive password and
 	// game folders from the settings page.
 	ArchivePassword string   `json:"archive_password,omitempty"`
@@ -346,6 +353,23 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 		newCfg.Metadata.URL = req.Metadata.URL
 	}
 
+	// Story 11.1: trailer language + optional YouTube API key.
+	// Language is a short language code (e.g. "en", "fr", "pt-BR"). An
+	// empty value preserves the current setting; a non-empty value must
+	// look like a BCP-47 code (letters, digits, hyphens, ≤ 16 chars) to
+	// avoid storing arbitrary junk that the YouTube relevanceLanguage
+	// parameter would reject.
+	if req.Trailer.Language != "" {
+		if !isValidTrailerLanguage(req.Trailer.Language) {
+			writeError(w, http.StatusBadRequest, "trailer.language must be a BCP-47 code (e.g. en, fr, pt-BR)", "INVALID_INPUT")
+			return
+		}
+		newCfg.Trailer.Language = req.Trailer.Language
+	}
+	if req.Trailer.YouTubeAPIKey != "" {
+		newCfg.Trailer.YouTubeAPIKey = req.Trailer.YouTubeAPIKey
+	}
+
 	// Story 9.8 follow-up: archive password and game folders.
 	if req.ArchivePassword != "" {
 		if len(req.ArchivePassword) < 8 {
@@ -418,6 +442,9 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 			"update": map[string]interface{}{
 				"auto_apply":   newCfg.Update.AutoApply,
 				"auto_restart": newCfg.Update.AutoRestart,
+			},
+			"trailer": map[string]interface{}{
+				"language": newCfg.Trailer.Language,
 			},
 			"rebind_status": rebindStatus,
 			"message":       "Settings saved successfully",
@@ -778,6 +805,26 @@ func isValidServerHost(host string) bool {
 			if c == '-' && (i == 0 || i == len(label)-1) {
 				return false
 			}
+		}
+	}
+	return true
+}
+
+// isValidTrailerLanguage reports whether s is a plausible BCP-47 / ISO-639
+// language code for the YouTube relevanceLanguage parameter (Story 11.1).
+// We accept ASCII letters, digits and hyphens, length 2-16 (covers "en",
+// "fr", "pt-BR", "zh-Hans"). This is intentionally permissive — YouTube
+// itself validates the code — but bounded so the settings store cannot be
+// poisoned with arbitrary long/binary input.
+func isValidTrailerLanguage(s string) bool {
+	if len(s) < 2 || len(s) > 16 {
+		return false
+	}
+	for _, c := range s {
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-'
+		if !ok {
+			return false
 		}
 	}
 	return true

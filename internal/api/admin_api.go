@@ -45,6 +45,14 @@ func SanitizeConfig(cfg *types.Config) map[string]interface{} {
 			"url":              cfg.Metadata.URL,
 			"refresh_interval": cfg.Metadata.RefreshInterval.String(),
 		},
+		// Story 11.1: surface the trailer language (a global dropdown in
+		// the Power-mode settings). youtube_api_key is a SECRET and is
+		// NEVER included here — only a has_youtube_api_key boolean, mirroring
+		// the update.has_github_token pattern above.
+		"trailer": map[string]interface{}{
+			"language":            cfg.Trailer.Language,
+			"has_youtube_api_key": cfg.Trailer.YouTubeAPIKey != "",
+		},
 		"database": map[string]interface{}{
 			"path": cfg.Database.Path,
 		},
