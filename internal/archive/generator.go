@@ -211,6 +211,39 @@ func (g *Generator) generate(ctx context.Context, games []types.GameEntry, metad
 		}
 	}
 
+	// Story 11.1 — Delivery channel A: trailer links.
+	//
+	// When a game has a resolved trailer URL, embed it as
+	// trailers/{releaseName}.txt with the URL as the exact body (no
+	// trailing newline). The client (story 11.2) extracts it by
+	// releaseName — the same key it uses for everything else — so we key
+	// by ReleaseName here, NOT packageName. Unlike thumbnails/notes/icons,
+	// this payload comes straight from the GameEntry (DB column), so it is
+	// independent of the metadata cache: it runs even when metadata == nil.
+	// Games without a trailer add no entry (mirrors the "skip if no file"
+	// behaviour of the metadata loop above).
+	seenTrailers := make(map[string]bool)
+	for _, game := range games {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if game.TrailerURL == "" || game.ReleaseName == "" {
+			continue
+		}
+		// Key by releaseName; skip duplicates (a release name is unique per
+		// the DB UNIQUE constraint, but guard defensively).
+		if seenTrailers[game.ReleaseName] {
+			continue
+		}
+		seenTrailers[game.ReleaseName] = true
+		files = append(files, archiveFile{
+			path: filepath.Join("trailers", game.ReleaseName+".txt"),
+			data: []byte(game.TrailerURL),
+		})
+	}
+
 	// Write all files to the temp directory.
 	var fileArgs []string
 	for _, f := range files {

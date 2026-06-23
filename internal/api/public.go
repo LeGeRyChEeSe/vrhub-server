@@ -650,6 +650,12 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 			case path == "notes.txt":
 				serveNotesFile(w, r, deps, game)
 				return
+			case path == "trailer.txt":
+				// Story 11.1 — Delivery channel B: the trailer URL is
+				// served as plain text from the game's DB column (no file
+				// on disk), parallel to notes.txt.
+				serveTrailerFile(w, r, game)
+				return
 			case isImageExtension(path):
 				serveMetadataImage(w, r, deps, game, path)
 				return
@@ -735,6 +741,26 @@ func serveNotesFile(w http.ResponseWriter, r *http.Request, deps fileServerDeps,
 	w.Write(data) //nolint:errcheck
 }
 
+// serveTrailerFile serves the game's resolved trailer URL as plain text.
+// Called for GET /{hash}/trailer.txt requests (Story 11.1 — Delivery
+// channel B). Parallel to serveNotesFile, but the payload comes from the
+// game's DB column (game.TrailerURL), NOT a file on disk: the server never
+// hosts the video, only the link.
+//
+// Games without a trailer (TrailerURL == "") return 404 — symmetric with the
+// listing, which omits the trailer.txt link for them.
+func serveTrailerFile(w http.ResponseWriter, r *http.Request, game *types.GameEntry) {
+	if game == nil || game.TrailerURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	data := []byte(game.TrailerURL)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data) //nolint:errcheck
+}
+
 // serveMetadataImage serves a known metadata image (e.g. thumbnail.jpg) from the
 // metadata cache. Called for GET /{hash}/{imagename} requests where imagename is
 // a recognized metadata image filename. Unknown names return 404.
@@ -814,6 +840,14 @@ func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServer
 		if info, statErr := os.Stat(notesPath); statErr == nil && !info.IsDir() {
 			fmt.Fprintf(w, "<li><a href=\"notes.txt\">notes.txt</a></li>\n")
 		}
+	}
+
+	// Story 11.1 — Delivery channel B: advertise the trailer link when the
+	// game has a resolved trailer URL. The URL lives on the DB row (not a
+	// file on disk), so this is independent of deps.Config. serveTrailerFile
+	// serves the body at GET /{hash}/trailer.txt.
+	if game.TrailerURL != "" {
+		fmt.Fprintf(w, "<li><a href=\"trailer.txt\">trailer.txt</a></li>\n")
 	}
 
 	fmt.Fprintf(w, "</ul>\n</body>\n</html>\n")

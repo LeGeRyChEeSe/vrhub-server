@@ -477,3 +477,58 @@ func TestNewMetadataCache_ValidRoot_OK(t *testing.T) {
 		t.Error("ThumbnailPath returned empty for non-empty root")
 	}
 }
+
+// TestGenerateMeta7z_TrailerEntry verifies AC2: a game with a non-empty
+// TrailerURL produces a trailers/{releaseName}.txt entry whose body is exactly
+// the URL, while a game without a trailer adds NO entry.
+func TestGenerateMeta7z_TrailerEntry(t *testing.T) {
+	sevenZipPath, lookErr := sevenZipBinaryPath(context.Background(), t.TempDir())
+	if lookErr != nil {
+		t.Skip("7z/7zz not in PATH, skipping AES-256 archive test:", lookErr)
+	}
+
+	tmpDir := t.TempDir()
+	metadata, err := NewMetadataCache(tmpDir)
+	if err != nil {
+		t.Fatalf("NewMetadataCache: %v", err)
+	}
+
+	const trailerURL = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
+	games := []types.GameEntry{
+		{GameName: "Has Trailer", ReleaseName: "with_trailer_v1", PackageName: "com.with.trailer", VersionCode: 1, SizeBytes: 100, Popularity: 50, TrailerURL: trailerURL},
+		{GameName: "No Trailer", ReleaseName: "no_trailer_v1", PackageName: "com.no.trailer", VersionCode: 1, SizeBytes: 100, Popularity: 40},
+	}
+
+	var buf bytes.Buffer
+	if err := GenerateMeta7z(context.Background(), games, metadata, &buf, "test-password-123"); err != nil {
+		t.Fatalf("GenerateMeta7z failed: %v", err)
+	}
+
+	archivePath := filepath.Join(tmpDir, "test.7z")
+	if err := os.WriteFile(archivePath, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	// List entries: the with-trailer file must be present, the no-trailer one absent.
+	listOut, listErr := exec.Command(sevenZipPath, "l", "-slt", "-ptest-password-123", archivePath).Output()
+	if listErr != nil {
+		t.Fatalf("7z list failed: %v", listErr)
+	}
+	listStr := string(listOut)
+	withPath := filepath.ToSlash(filepath.Join("trailers", "with_trailer_v1.txt"))
+	if !strings.Contains(listStr, "trailers/with_trailer_v1.txt") && !strings.Contains(listStr, `trailers\with_trailer_v1.txt`) {
+		t.Errorf("expected %q entry in archive listing, got:\n%s", withPath, listStr)
+	}
+	if strings.Contains(listStr, "no_trailer_v1.txt") {
+		t.Errorf("game without a trailer must NOT add a trailers/*.txt entry, got:\n%s", listStr)
+	}
+
+	// Extract the trailer file to stdout and verify the body is exactly the URL.
+	xOut, xErr := exec.Command(sevenZipPath, "x", "-so", "-ptest-password-123", archivePath, "trailers/with_trailer_v1.txt").Output()
+	if xErr != nil {
+		t.Fatalf("7z extract failed: %v", xErr)
+	}
+	if string(xOut) != trailerURL {
+		t.Errorf("trailer file body = %q, want %q (exact, no trailing newline)", string(xOut), trailerURL)
+	}
+}
