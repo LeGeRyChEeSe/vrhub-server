@@ -16,6 +16,9 @@ const (
 	defaultPort           = 39457
 	defaultHost           = "127.0.0.1"
 	configFileName        = "config.toml"
+	// defaultTrailerLanguage is the relevanceLanguage default for the
+	// YouTube trailer resolver (Story 11.1).
+	defaultTrailerLanguage = "en"
 )
 
 // Load reads the config file from dataDir/config.toml.
@@ -57,6 +60,12 @@ func Load(dataDir string) (*types.Config, error) {
 	}
 	if cfg.Database.Path == "" {
 		cfg.Database.Path = filepath.Join(dataDir, "vrhub.db")
+	}
+	// Story 11.1: default the trailer language to "en" when the [trailer]
+	// section is absent or only sets youtube_api_key. The YouTube resolver
+	// passes this as relevanceLanguage; an empty value would be rejected.
+	if cfg.Trailer.Language == "" {
+		cfg.Trailer.Language = defaultTrailerLanguage
 	}
 
 	return cfg, nil
