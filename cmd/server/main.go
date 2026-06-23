@@ -161,7 +161,9 @@ func main() {
 	}
 
 	// Create GameManager for file watcher integration (only in normal mode).
-	var watcher *game.Watcher
+	// Story 3.5: the watcher is owned by a WatcherManager so a settings
+	// save that changes game_folders can restart it concurrency-safely.
+	var watcherManager *game.WatcherManager
 	if mode == types.ModeNormal && gameDB != nil {
 		gameManager := game.NewGameManager(gameDB, dataDir)
 
@@ -264,56 +266,59 @@ func main() {
 			}
 		}
 
-		watcher, err = game.NewWatcher(dataDir, gameManager)
-		if err != nil {
-			vlog.Get().Warn().Err(err).Msg("Failed to create file watcher, continuing without it")
-			watcher = nil
-		} else if watcher.IsSupported() {
-			handler := func(event game.FileEvent) error {
-				ext := filepath.Ext(event.FilePath)
-				logger := vlog.Get()
+		// Story 3.5: per-event import/removal handler. Reused across
+		// watcher restarts (config change) so the logic lives in one
+		// place. The watcher now targets cfg.GameFolders, not dataDir.
+		watchHandler := func(event game.FileEvent) error {
+			ext := filepath.Ext(event.FilePath)
+			logger := vlog.Get()
 
-				switch event.EventType {
-				case game.EventAdded:
-					if ext == ".apk" {
-						logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new APK file")
-						if err := gameManager.ImportAPK(event.FilePath); err != nil {
-							logger.Error().Err(err).Str("event", "added").Str("file", event.FilePath).Msg("failed to import APK from watcher")
-						}
-					} else if ext == ".obb" {
-						logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new OBB file, waiting for paired APK")
+			switch event.EventType {
+			case game.EventAdded:
+				if ext == ".apk" {
+					logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new APK file")
+					if err := gameManager.ImportAPK(event.FilePath); err != nil {
+						logger.Error().Err(err).Str("event", "added").Str("file", event.FilePath).Msg("failed to import APK from watcher")
 					}
-
-				case game.EventRemoved:
-					if ext == ".apk" {
-						logger.Info().Str("event", "removed").Str("file", event.FilePath).Msg("detected removed APK file, skipping DB removal (periodic scan handles cleanup)")
-					} else if ext == ".obb" {
-						logger.Info().Str("event", "removed").Str("file", event.FilePath).Msg("detected removed OBB file")
-					}
-
-				case game.EventModified:
-					if ext == ".apk" {
-						logger.Info().Str("event", "modified").Str("file", event.FilePath).Msg("detected modified APK file, updating last_updated")
-						meta, metaErr := game.ExtractAPKMetadata(event.FilePath)
-						if metaErr != nil || meta.PackageName == "" {
-							logger.Warn().Str("file", event.FilePath).Msg("cannot determine package name for modified file, skipping re-import")
-						} else if importErr := gameManager.ImportAPK(event.FilePath); importErr != nil {
-							logger.Error().Err(importErr).Str("package", meta.PackageName).Str("event", "modified").Msg("failed to update modified APK")
-						}
-					} else if ext == ".obb" {
-						logger.Info().Str("event", "modified").Str("file", event.FilePath).Msg("detected modified OBB file, size tracking will update on next scan")
-					}
+				} else if ext == ".obb" {
+					logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new OBB file, waiting for paired APK")
 				}
-				return nil
-			}
 
-			if err := watcher.Start(handler); err != nil {
-				vlog.Get().Warn().Err(err).Msg("Failed to start file watcher")
-			} else {
-				vlog.Get().Info().Str("platform", runtime.GOOS).Msg("file watcher started")
+			case game.EventRemoved:
+				if ext == ".apk" {
+					logger.Info().Str("event", "removed").Str("file", event.FilePath).Msg("detected removed APK file, skipping DB removal (periodic scan handles cleanup)")
+				} else if ext == ".obb" {
+					logger.Info().Str("event", "removed").Str("file", event.FilePath).Msg("detected removed OBB file")
+				}
+
+			case game.EventModified:
+				if ext == ".apk" {
+					logger.Info().Str("event", "modified").Str("file", event.FilePath).Msg("detected modified APK file, updating last_updated")
+					meta, metaErr := game.ExtractAPKMetadata(event.FilePath)
+					if metaErr != nil || meta.PackageName == "" {
+						logger.Warn().Str("file", event.FilePath).Msg("cannot determine package name for modified file, skipping re-import")
+					} else if importErr := gameManager.ImportAPK(event.FilePath); importErr != nil {
+						logger.Error().Err(importErr).Str("package", meta.PackageName).Str("event", "modified").Msg("failed to update modified APK")
+					}
+				} else if ext == ".obb" {
+					logger.Info().Str("event", "modified").Str("file", event.FilePath).Msg("detected modified OBB file, size tracking will update on next scan")
+				}
 			}
-		} else {
-			vlog.Get().Warn().Str("platform", runtime.GOOS).Msg("file watcher not supported on this platform")
+			return nil
+		}
+
+		// Story 3.5 (AC1/AC5): start the watcher on the configured game
+		// folders, not dataDir. Only start when at least one folder is
+		// configured (mirrors the startup-scan guard above). The manager
+		// is always created so the settings-change restart hook works
+		// even if folders are added later.
+		watcherManager = game.NewWatcherManager(gameManager, watchHandler)
+		if cfg != nil && len(cfg.GameFolders) > 0 {
+			if startErr := watcherManager.Start(cfg.GameFolders); startErr != nil {
+				vlog.Get().Warn().Err(startErr).Msg("Failed to start file watcher")
+			} else {
+				vlog.Get().Info().Str("platform", runtime.GOOS).Strs("folders", cfg.GameFolders).Msg("file watcher started")
+			}
 		}
 	}
 
@@ -420,7 +425,18 @@ func main() {
 	monitorBus := monitor.NewEventBus()
 	reloader := newLiveRebinder()
 	updatePusher := newUpdateConfigPusher()
-	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus)
+	// Story 3.5 (AC3): the watcher-restart hook fires when a settings
+	// save mutates game_folders. nil when there's no watcher manager
+	// (setup mode / DB unavailable).
+	var gameFoldersChangedHook func([]string)
+	if watcherManager != nil {
+		gameFoldersChangedHook = func(folders []string) {
+			if restartErr := watcherManager.Restart(folders); restartErr != nil {
+				vlog.Get().Warn().Err(restartErr).Strs("folders", folders).Msg("failed to restart file watcher after game_folders change")
+			}
+		}
+	}
+	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, gameFoldersChangedHook)
 
 	// Determine listen address.
 	// Live session 2026-06-08: default bind host is "0.0.0.0" (all
@@ -514,8 +530,8 @@ func main() {
 	}
 
 	// Stop file watcher if active.
-	if watcher != nil {
-		watcher.Stop()
+	if watcherManager != nil {
+		watcherManager.Stop()
 		vlog.Get().Info().Msg("file watcher stopped")
 	}
 
