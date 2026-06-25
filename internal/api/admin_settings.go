@@ -425,6 +425,14 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 		h.UpdateConfigPusher(&newCfg.Update)
 	}
 
+	// Story 11.3: when a YouTube API key is configured, resolve trailers for
+	// games still lacking a specific video — in the background, best-effort —
+	// so the operator gets specific-video trailers without restarting the
+	// server. A no-op when h.DB is nil. Games already resolved are skipped.
+	if newCfg.Trailer.YouTubeAPIKey != "" {
+		h.resolveTrailersAsync(&newCfg)
+	}
+
 	vlog.Get().Info().
 		Str("host", newCfg.Server.Host).
 		Int("port", newCfg.Server.Port).
