@@ -57,12 +57,9 @@ type settingsUpdateRequest struct {
 		RefreshInterval string `json:"refresh_interval"`
 		URL             string `json:"url"`
 	} `json:"metadata"`
-	// Story 11.1: the trailer language (global dropdown). youtube_api_key
-	// is accepted too (empty preserves the existing value, like the update
-	// github_token field) but is never echoed back in any GET response.
+	// Story 11.1/11.3: the global trailer language (admin dropdown).
 	Trailer struct {
-		Language      string `json:"language"`
-		YouTubeAPIKey string `json:"youtube_api_key"`
+		Language string `json:"language"`
 	} `json:"trailer"`
 	// Story 9.8 follow-up: allow changing the archive password and
 	// game folders from the settings page.
@@ -353,21 +350,16 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 		newCfg.Metadata.URL = req.Metadata.URL
 	}
 
-	// Story 11.1: trailer language + optional YouTube API key.
-	// Language is a short language code (e.g. "en", "fr", "pt-BR"). An
-	// empty value preserves the current setting; a non-empty value must
-	// look like a BCP-47 code (letters, digits, hyphens, ≤ 16 chars) to
-	// avoid storing arbitrary junk that the YouTube relevanceLanguage
-	// parameter would reject.
+	// Story 11.1/11.3: global trailer language. A short language code (e.g.
+	// "en", "fr", "pt-BR"); empty preserves the current setting, a non-empty
+	// value must look like a BCP-47 code (letters, digits, hyphens, ≤ 16 chars)
+	// to avoid storing junk that the YouTube "hl" hint would reject.
 	if req.Trailer.Language != "" {
 		if !isValidTrailerLanguage(req.Trailer.Language) {
 			writeError(w, http.StatusBadRequest, "trailer.language must be a BCP-47 code (e.g. en, fr, pt-BR)", "INVALID_INPUT")
 			return
 		}
 		newCfg.Trailer.Language = req.Trailer.Language
-	}
-	if req.Trailer.YouTubeAPIKey != "" {
-		newCfg.Trailer.YouTubeAPIKey = req.Trailer.YouTubeAPIKey
 	}
 
 	// Story 9.8 follow-up: archive password and game folders.
@@ -423,14 +415,6 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 			newCfg.Update.Owner != cfg.Update.Owner ||
 			newCfg.Update.Repo != cfg.Update.Repo) {
 		h.UpdateConfigPusher(&newCfg.Update)
-	}
-
-	// Story 11.3: when a YouTube API key is configured, resolve trailers for
-	// games still lacking a specific video — in the background, best-effort —
-	// so the operator gets specific-video trailers without restarting the
-	// server. A no-op when h.DB is nil. Games already resolved are skipped.
-	if newCfg.Trailer.YouTubeAPIKey != "" {
-		h.resolveTrailersAsync(&newCfg)
 	}
 
 	vlog.Get().Info().

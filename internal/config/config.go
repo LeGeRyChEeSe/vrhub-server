@@ -61,9 +61,9 @@ func Load(dataDir string) (*types.Config, error) {
 	if cfg.Database.Path == "" {
 		cfg.Database.Path = filepath.Join(dataDir, "vrhub.db")
 	}
-	// Story 11.1: default the trailer language to "en" when the [trailer]
-	// section is absent or only sets youtube_api_key. The YouTube resolver
-	// passes this as relevanceLanguage; an empty value would be rejected.
+	// Story 11.1/11.3: default the trailer language to "en" when the [trailer]
+	// section is absent. Used as the "hl" hint of the YouTube search-link
+	// fallback; an empty value would drop the hint.
 	if cfg.Trailer.Language == "" {
 		cfg.Trailer.Language = defaultTrailerLanguage
 	}

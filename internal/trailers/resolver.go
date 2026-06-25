@@ -12,12 +12,13 @@
 //     URLs only appear embedded in free-text marketing descriptions. So this
 //     step logs at Debug and falls through. We do NOT scrape the description
 //     (too unreliable — would surface unrelated "let's play" videos).
-//  3. YouTube Data API (optional) — only when cfg.Trailer.YouTubeAPIKey is
-//     set. Searches "{gameName} trailer" with relevanceLanguage set to
-//     cfg.Trailer.Language and takes the first video result.
 //
-// The resolved URL is meant to be cached in the DB (games.trailer_url) and
-// only re-resolved when empty or via an explicit refresh.
+// When neither step resolves a specific video, the game falls back (at delivery
+// time — see EffectiveTrailerURL) to a YouTube SEARCH link, so every game still
+// gets a trailer link without any API key.
+//
+// A resolved override URL is cached in the DB (games.trailer_url) and only
+// re-resolved when empty.
 package trailers
 
 import (
@@ -35,40 +36,18 @@ import (
 // per-release.
 const genericOverrideFileName = "trailer.url"
 
-// YouTubeSearcher abstracts the YouTube Data API search so the resolver can
-// be unit-tested without a network call or a real API key. Resolve calls it
-// only when cfg.Trailer.YouTubeAPIKey is non-empty.
-type YouTubeSearcher interface {
-	// SearchTrailer returns a watch URL for the first video matching
-	// "{query} trailer" in the given relevanceLanguage, or "" when nothing
-	// is found. Implementations must respect ctx cancellation.
-	SearchTrailer(ctx context.Context, apiKey, query, language string) (string, error)
-}
-
-// Resolver runs the trailer resolution cascade.
+// Resolver runs the trailer resolution cascade (operator override, then a
+// best-effort oculusdb lookup). The YouTube Data API step was removed — games
+// without a resolved override fall back to a YouTube search link at delivery.
 type Resolver struct {
 	// metadataDir is "{dataDir}/metadata" — the root of the MetaMetadata
 	// cache. Used to locate the oculusdb JSON for the best-effort step.
 	metadataDir string
-	// youtube is the optional YouTube Data API client. nil disables step 3
-	// even when an API key is configured (used by tests / when the key path
-	// is not wired). The default New() wires the real HTTP client.
-	youtube YouTubeSearcher
 }
 
-// New creates a Resolver. metadataDir is "{dataDir}/metadata". The real
-// YouTube HTTP client is wired in; pass a custom one via NewWithSearcher for
-// tests.
+// New creates a Resolver. metadataDir is "{dataDir}/metadata".
 func New(metadataDir string) *Resolver {
-	return &Resolver{
-		metadataDir: metadataDir,
-		youtube:     &httpYouTubeSearcher{},
-	}
-}
-
-// NewWithSearcher creates a Resolver with an injected YouTubeSearcher (tests).
-func NewWithSearcher(metadataDir string, yt YouTubeSearcher) *Resolver {
-	return &Resolver{metadataDir: metadataDir, youtube: yt}
+	return &Resolver{metadataDir: metadataDir}
 }
 
 // Resolve runs the cascade for one game and returns the resolved trailer URL
@@ -101,34 +80,12 @@ func (r *Resolver) Resolve(ctx context.Context, game types.GameEntry, cfg *types
 		return url, nil
 	}
 
-	// Step 3: YouTube Data API (only when a key is configured).
-	if cfg != nil && cfg.Trailer.YouTubeAPIKey != "" && r.youtube != nil {
-		query := game.GameName
-		if query == "" {
-			query = game.ReleaseName
-		}
-		if query != "" {
-			url, err := r.youtube.SearchTrailer(ctx, cfg.Trailer.YouTubeAPIKey, query, cfg.Trailer.Language)
-			if err != nil {
-				vlog.Get().Debug().Err(err).
-					Str("release", game.ReleaseName).
-					Msg("trailer: YouTube search failed, leaving trailer empty")
-				return "", err
-			}
-			if url != "" {
-				vlog.Get().Debug().
-					Str("release", game.ReleaseName).
-					Str("source", "youtube").
-					Msg("trailer: resolved from YouTube Data API")
-				return url, nil
-			}
-		}
-	}
-
-	// AC5: nothing found — graceful empty result, no error.
+	// Nothing resolved a specific video — graceful empty result, no error. The
+	// delivery layer (EffectiveTrailerURL) falls back to a YouTube search link,
+	// so the game still gets a trailer link.
 	vlog.Get().Debug().
 		Str("release", game.ReleaseName).
-		Msg("trailer: no source resolved a URL (override absent, no oculusdb field, no API key/result)")
+		Msg("trailer: no specific video resolved (override absent, no oculusdb field) — search-link fallback applies")
 	return "", nil
 }
 

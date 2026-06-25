@@ -24,16 +24,14 @@ type Config struct {
 	Trailer     TrailerConfig  `toml:"trailer"`
 }
 
-// TrailerConfig holds settings for the streaming-trailer resolver (Story 11.1).
+// TrailerConfig holds settings for the streaming-trailer feature (Story 11.1 /
+// 11.3).
 type TrailerConfig struct {
-	// Language is the relevanceLanguage hint passed to the YouTube Data API
-	// search (BCP-47 / ISO-639 code, e.g. "en", "fr"). Default "en".
-	// Surfaced in the admin settings (Power mode) as a global dropdown.
+	// Language is the language hint for trailer links (BCP-47 / ISO-639 code,
+	// e.g. "en", "fr"). Default "en". Used as the "hl" parameter of the YouTube
+	// search-link fallback built for every game. Surfaced in the admin settings
+	// (Power mode) as a global dropdown.
 	Language string `toml:"language"`
-	// YouTubeAPIKey is an optional YouTube Data API v3 key. When set, the
-	// resolver may search "{gameName} trailer" and take the first result as
-	// a fallback. Never leaked through SanitizeConfig / the settings JSON.
-	YouTubeAPIKey string `toml:"youtube_api_key"`
 }
 
 // AdminConfig holds admin credentials for the web UI.

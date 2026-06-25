@@ -656,12 +656,6 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			protectedRouter.Delete("/api/games/{releaseName}", adminHandler.HandleGameDeleteDELETE)
 		}
 
-		// POST /admin/api/trailers/resolve — Story 11.3: kick off a background
-		// trailer resolution pass for all games (best-effort; resolves specific
-		// videos only when a YouTube API key is set). Guards on a nil DB at
-		// request time via requireDB.
-		protectedRouter.Post("/api/trailers/resolve", adminHandler.HandleTrailersResolvePOST)
-
 		// Update endpoints (protected by session middleware — resolves Story 5-3 defer).
 		//
 		// Story 9.2 (B2): the `if cfg != nil` guard was REMOVED. The update

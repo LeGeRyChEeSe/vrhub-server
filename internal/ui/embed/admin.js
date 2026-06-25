@@ -1414,50 +1414,6 @@ function renderSettingsForm(container, d) {
     trailerLangGroup.appendChild(trailerLangHelp);
     form.appendChild(trailerLangGroup);
 
-    // Optional YouTube Data API key (write-only: never returned by the server).
-    var trailerKeyField = makeField('cfg-trailer-youtube-key', i18n('config_trailer_youtube_key', 'Clé API YouTube Data (optionnelle)'), 'password', '', { togglePassword: true, defaultValue: '' });
-    if (d.trailer && d.trailer.has_youtube_api_key) {
-        trailerKeyField.input.placeholder = i18n('config_trailer_youtube_key_set', '•••••• (clé enregistrée — laisser vide pour conserver)');
-    }
-    form.appendChild(trailerKeyField.group);
-    var trailerKeyHelp = document.createElement('p');
-    trailerKeyHelp.style.cssText = 'font-size:0.8rem;opacity:0.7;margin-top:0.25rem;';
-    trailerKeyHelp.textContent = i18n('config_trailer_youtube_key_help', 'Sans clé, chaque jeu reçoit un lien de recherche YouTube. Avec une clé, le serveur résout une vidéo précise par jeu (quota ~100 recherches/jour ; précision « 1er résultat » imparfaite).');
-    form.appendChild(trailerKeyHelp);
-
-    // "Resolve trailers now" action.
-    if (!readOnly) {
-        var resolveGroup = document.createElement('div');
-        resolveGroup.className = 'form-group';
-        var resolveBtn = document.createElement('button');
-        resolveBtn.type = 'button';
-        resolveBtn.className = 'btn btn-secondary';
-        resolveBtn.textContent = i18n('config_trailer_resolve_now', 'Résoudre les trailers maintenant');
-        var resolveStatus = document.createElement('span');
-        resolveStatus.style.cssText = 'margin-left:0.5rem;font-size:0.85rem;opacity:0.85;';
-        resolveBtn.addEventListener('click', function() {
-            resolveBtn.disabled = true;
-            resolveStatus.textContent = i18n('config_trailer_resolving', 'Résolution en cours…');
-            fetch('/admin/api/trailers/resolve', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'X-CSRF-Token': getCSRFToken() }
-            })
-            .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
-            .then(function(res) {
-                resolveBtn.disabled = false;
-                resolveStatus.textContent = (res.j && res.j.message) ? res.j.message : (res.ok ? 'OK' : 'Error');
-            })
-            .catch(function(err) {
-                resolveBtn.disabled = false;
-                resolveStatus.textContent = i18n('config_trailer_resolve_failed', 'Échec') + ': ' + err.message;
-            });
-        });
-        resolveGroup.appendChild(resolveBtn);
-        resolveGroup.appendChild(resolveStatus);
-        form.appendChild(resolveGroup);
-    }
-
     // Update section
     var updHeader = document.createElement('h3');
     updHeader.textContent = i18n('config_update_section');
@@ -1695,12 +1651,6 @@ function renderSettingsForm(container, d) {
                 language: trailerLangSelect.value
             }
         };
-        // Story 11.3: send the YouTube API key only when the operator typed one
-        // (the server preserves the existing key when the field is empty).
-        var trailerKey = trailerKeyField.input.value;
-        if (trailerKey) {
-            payload.trailer.youtube_api_key = trailerKey;
-        }
         var archivePwd = pwdField.input.value.trim();
         if (archivePwd) {
             if (archivePwd.length < 8) {

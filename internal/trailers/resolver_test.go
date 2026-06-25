@@ -10,22 +10,6 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
-// fakeSearcher is an injected YouTubeSearcher for the cascade tests.
-type fakeSearcher struct {
-	url     string
-	err     error
-	called  bool
-	gotLang string
-	gotQ    string
-}
-
-func (f *fakeSearcher) SearchTrailer(ctx context.Context, apiKey, query, language string) (string, error) {
-	f.called = true
-	f.gotLang = language
-	f.gotQ = query
-	return f.url, f.err
-}
-
 // TestResolveOverride_PerRelease verifies AC1: a "{releaseName}.trailer"
 // sidecar next to the APK is read and trimmed.
 func TestResolveOverride_PerRelease(t *testing.T) {
@@ -157,72 +141,6 @@ func TestResolveOculusDB_FutureField(t *testing.T) {
 	got := r.resolveFromOculusDB(types.GameEntry{PackageName: "com.future.game", ReleaseName: "rel"})
 	if got != want {
 		t.Errorf("resolveFromOculusDB = %q, want %q", got, want)
-	}
-}
-
-// TestResolveYouTube_UsesLanguageAndQuery verifies AC4: when an API key is set
-// the YouTube step runs with relevanceLanguage from cfg.Trailer.Language and a
-// "{gameName}" query, and returns its result.
-func TestResolveYouTube_UsesLanguageAndQuery(t *testing.T) {
-	const want = "https://www.youtube.com/watch?v=YTRESULT001"
-	fake := &fakeSearcher{url: want}
-	r := NewWithSearcher(t.TempDir(), fake)
-
-	cfg := &types.Config{}
-	cfg.Trailer.YouTubeAPIKey = "key-123"
-	cfg.Trailer.Language = "fr"
-
-	game := types.GameEntry{ReleaseName: "rel", PackageName: "com.yt.game", GameName: "Cool Game"}
-	got, err := r.Resolve(context.Background(), game, cfg)
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	if got != want {
-		t.Errorf("Resolve = %q, want %q", got, want)
-	}
-	if !fake.called {
-		t.Error("expected YouTube searcher to be called")
-	}
-	if fake.gotLang != "fr" {
-		t.Errorf("relevanceLanguage = %q, want \"fr\"", fake.gotLang)
-	}
-	if fake.gotQ != "Cool Game" {
-		t.Errorf("query = %q, want \"Cool Game\"", fake.gotQ)
-	}
-}
-
-// TestResolveYouTube_NotCalledWithoutKey verifies the YouTube step is skipped
-// when no API key is configured (AC5 — pure override path).
-func TestResolveYouTube_NotCalledWithoutKey(t *testing.T) {
-	fake := &fakeSearcher{url: "https://should.not/be-used"}
-	r := NewWithSearcher(t.TempDir(), fake)
-
-	game := types.GameEntry{ReleaseName: "rel", PackageName: "com.yt.game", GameName: "Cool Game"}
-	got, err := r.Resolve(context.Background(), game, &types.Config{}) // no key
-	if err != nil || got != "" {
-		t.Errorf("Resolve = (%q, %v), want (\"\", nil)", got, err)
-	}
-	if fake.called {
-		t.Error("YouTube searcher must NOT be called without an API key")
-	}
-}
-
-// TestResolveYouTube_ErrorPropagated verifies a real YouTube fault is returned
-// (caller treats it as best-effort) and leaves the URL empty.
-func TestResolveYouTube_ErrorPropagated(t *testing.T) {
-	fake := &fakeSearcher{err: errors.New("boom")}
-	r := NewWithSearcher(t.TempDir(), fake)
-
-	cfg := &types.Config{}
-	cfg.Trailer.YouTubeAPIKey = "key-123"
-
-	game := types.GameEntry{ReleaseName: "rel", PackageName: "com.yt.game", GameName: "Cool Game"}
-	got, err := r.Resolve(context.Background(), game, cfg)
-	if err == nil {
-		t.Error("expected error to propagate")
-	}
-	if got != "" {
-		t.Errorf("Resolve = %q, want \"\" on error", got)
 	}
 }
 
