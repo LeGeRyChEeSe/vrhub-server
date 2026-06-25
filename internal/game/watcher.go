@@ -37,15 +37,23 @@ type FileEvent struct {
 type WatchHandler func(event FileEvent) error
 
 // FileWatcher defines the interface for file system watchers.
+//
+// Story 3.5: Watch no longer takes a directory argument — the concrete
+// watcher stores the configured game folders at construction time and
+// iterates them internally. This makes the watcher multi-folder aware.
 type FileWatcher interface {
-	Watch(dir string, handler WatchHandler) error
+	// SetFolders replaces the set of folders the watcher iterates.
+	// Called by Watcher.Start with only the folders that exist on
+	// disk (AC4: missing folders are filtered out before watching).
+	SetFolders(folders []string)
+	Watch(handler WatchHandler) error
 	Stop()
 	IsSupported() bool
 }
 
 // Watcher manages file watching across platforms.
 type Watcher struct {
-	dataDir  string
+	folders  []string
 	importer GameImporter
 	logger   *zerolog.Logger
 	watcher  FileWatcher
@@ -69,13 +77,24 @@ type GameDeleter interface {
 }
 
 // NewWatcher creates a new Watcher instance with platform-appropriate watcher.
-func NewWatcher(dataDir string, importer GameImporter) (*Watcher, error) {
-	if dataDir == "" {
-		return nil, fmt.Errorf("data dir is required for file watcher")
+//
+// Story 3.5: folders is the set of user-configured game folders
+// (cfg.GameFolders). The watcher iterates every folder (and its
+// subdirectories) so a file dropped into ANY configured folder is
+// detected. An empty folder set is rejected — callers (main.go) must
+// guard with len(cfg.GameFolders) > 0 before creating the watcher.
+func NewWatcher(folders []string, importer GameImporter) (*Watcher, error) {
+	if len(folders) == 0 {
+		return nil, fmt.Errorf("at least one game folder is required for file watcher")
 	}
 
+	// Copy the slice so a later mutation of the caller's cfg.GameFolders
+	// (e.g. a config reload) can't change the set this watcher iterates.
+	cp := make([]string, len(folders))
+	copy(cp, folders)
+
 	w := &Watcher{
-		dataDir:  dataDir,
+		folders:  cp,
 		importer: importer,
 		logger:   vlog.Get(),
 		done:     make(chan struct{}),
@@ -83,22 +102,40 @@ func NewWatcher(dataDir string, importer GameImporter) (*Watcher, error) {
 
 	// Choose platform-specific watcher
 	if runtime.GOOS == "windows" {
-		w.watcher = NewPollingWatcher(dataDir, importer)
+		w.watcher = NewPollingWatcher(cp, importer)
 	} else {
-		w.watcher = NewNativeWatcher(dataDir, importer)
+		w.watcher = NewNativeWatcher(cp, importer)
 	}
 
 	return w, nil
 }
 
-// Start begins watching the configured directory.
+// Start begins watching the configured game folders.
+//
+// Story 3.5 (AC4/AC5): folders that don't exist are skipped with a
+// warning rather than aborting the watcher. If NONE of the configured
+// folders exist, Start logs and returns nil (no error) — the server
+// keeps running without live detection, exactly as the missing-dataDir
+// path did before.
 func (w *Watcher) Start(handler WatchHandler) error {
-	if _, err := os.Stat(w.dataDir); os.IsNotExist(err) {
-		w.logger.Warn().Str("dir", w.dataDir).Msg("data directory does not exist, skipping file watcher")
+	existing := make([]string, 0, len(w.folders))
+	for _, dir := range w.folders {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			w.logger.Warn().Str("dir", dir).Msg("game folder does not exist or is not a directory, skipping in file watcher")
+			continue
+		}
+		existing = append(existing, dir)
+	}
+
+	if len(existing) == 0 {
+		w.logger.Warn().Strs("folders", w.folders).Msg("no configured game folder exists, file watcher not started")
 		return nil
 	}
 
-	return w.watcher.Watch(w.dataDir, handler)
+	// Hand the watcher only the folders that actually exist, so the
+	// concrete implementation never tries to watch a missing path.
+	w.watcher.SetFolders(existing)
+	return w.watcher.Watch(handler)
 }
 
 // Stop gracefully shuts down the watcher.
@@ -117,7 +154,7 @@ func (w *Watcher) IsSupported() bool {
 
 // NativeWatcher wraps fsnotify for native OS-level file system events.
 type NativeWatcher struct {
-	dataDir string
+	folders []string
 	fs      *fsnotify.Watcher
 	handler WatchHandler
 	done    chan struct{}
@@ -126,16 +163,26 @@ type NativeWatcher struct {
 }
 
 // NewNativeWatcher creates a new NativeWatcher instance.
-func NewNativeWatcher(dataDir string, importer GameImporter) *NativeWatcher {
+func NewNativeWatcher(folders []string, importer GameImporter) *NativeWatcher {
 	return &NativeWatcher{
-		dataDir: dataDir,
+		folders: folders,
 		handler: nil, // set via Watch()
 		done:    make(chan struct{}),
 	}
 }
 
-// Watch starts watching the given directory using fsnotify.
-func (nw *NativeWatcher) Watch(dir string, handler WatchHandler) error {
+// SetFolders replaces the folder set the watcher iterates.
+func (nw *NativeWatcher) SetFolders(folders []string) {
+	nw.folders = folders
+}
+
+// Watch starts watching the configured game folders using fsnotify.
+//
+// Story 3.5 (AC2/AC4): every folder is walked recursively and each
+// subdirectory is registered with fsnotify. A folder that fails to walk
+// (deleted/inaccessible) is logged at Warn and skipped — the remaining
+// folders are still watched.
+func (nw *NativeWatcher) Watch(handler WatchHandler) error {
 	nw.handler = handler
 
 	fs, err := fsnotify.NewWatcher()
@@ -144,22 +191,43 @@ func (nw *NativeWatcher) Watch(dir string, handler WatchHandler) error {
 	}
 	nw.fs = fs
 
-	// Recursively add all subdirectories under dir to watch
-	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip inaccessible dirs
+	watched := 0
+	for _, dir := range nw.folders {
+		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
+			vlog.Get().Warn().Str("dir", dir).Msg("game folder missing/inaccessible, skipping in native watcher")
+			continue
 		}
-		if !d.IsDir() || path == dir {
+
+		// Watch the root folder itself plus every subdirectory so a file
+		// dropped directly into the root or any nested package dir fires.
+		walkErr := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil // skip inaccessible dirs
+			}
+			if !d.IsDir() {
+				return nil
+			}
+			if addErr := fs.Add(path); addErr != nil {
+				vlog.Get().Warn().Str("dir", path).Err(addErr).Msg("failed to add directory to watcher")
+				return nil
+			}
+			watched++
 			return nil
+		})
+		if walkErr != nil {
+			vlog.Get().Warn().Str("dir", dir).Err(walkErr).Msg("walk game folder for watching failed, skipping")
+			continue
 		}
-		if err := fs.Add(path); err != nil {
-			vlog.Get().Warn().Str("dir", path).Msg("failed to add directory to watcher")
-		}
-		return nil
-	})
-	if err != nil {
+	}
+
+	if watched == 0 {
+		// Nothing could be watched (all folders vanished between the
+		// Start() stat check and here). Close the fsnotify handle and
+		// return without spawning the event loop.
 		fs.Close()
-		return fmt.Errorf("walk dir for watching: %w", err)
+		nw.fs = nil
+		vlog.Get().Warn().Strs("folders", nw.folders).Msg("native watcher: no directory could be watched")
+		return nil
 	}
 
 	nw.wg.Add(1)
@@ -170,7 +238,9 @@ func (nw *NativeWatcher) Watch(dir string, handler WatchHandler) error {
 // Stop stops the native watcher.
 func (nw *NativeWatcher) Stop() {
 	close(nw.done)
-	nw.fs.Close()
+	if nw.fs != nil {
+		nw.fs.Close()
+	}
 	nw.wg.Wait()
 }
 
@@ -268,8 +338,13 @@ func (nw *NativeWatcher) watchEvents() {
 // --- Polling Watcher (Windows) using time.Ticker ---
 
 // PollingWatcher uses periodic directory scanning for Windows.
+//
+// Story 3.5: folders holds the set of configured game folders. Every
+// poll tick walks all folders into a single lastScan map keyed by
+// absolute path, so the existing Added/Modified/Removed detection works
+// unchanged across multiple roots.
 type PollingWatcher struct {
-	dataDir       string
+	folders       []string
 	importer      GameImporter
 	handler       WatchHandler
 	done          chan struct{}
@@ -286,9 +361,9 @@ type fileSnapshot struct {
 }
 
 // NewPollingWatcher creates a new PollingWatcher instance.
-func NewPollingWatcher(dataDir string, importer GameImporter) *PollingWatcher {
+func NewPollingWatcher(folders []string, importer GameImporter) *PollingWatcher {
 	return &PollingWatcher{
-		dataDir:       dataDir,
+		folders:       folders,
 		importer:      importer,
 		handler:       nil, // set via Watch()
 		done:          make(chan struct{}),
@@ -297,14 +372,18 @@ func NewPollingWatcher(dataDir string, importer GameImporter) *PollingWatcher {
 	}
 }
 
-// Watch starts the polling loop for the given directory.
-func (pw *PollingWatcher) Watch(dir string, handler WatchHandler) error {
+// SetFolders replaces the folder set the watcher iterates.
+func (pw *PollingWatcher) SetFolders(folders []string) {
+	pw.folders = folders
+}
+
+// Watch starts the polling loop across all configured game folders.
+func (pw *PollingWatcher) Watch(handler WatchHandler) error {
 	pw.handler = handler
-	pw.dataDir = dir
 	pw.initialScan = true
 
-	// Initial scan to establish baseline
-	pw.scanDirectory(dir)
+	// Initial scan to establish baseline (no events fired).
+	pw.scanFolders()
 	pw.initialScan = false
 
 	pw.wg.Add(1)
@@ -331,16 +410,63 @@ func (pw *PollingWatcher) pollLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			pw.scanDirectory(pw.dataDir)
+			pw.scanFolders()
 		case <-pw.done:
 			return
 		}
 	}
 }
 
-func (pw *PollingWatcher) scanDirectory(dir string) {
+// scanFolders walks every configured game folder into a single
+// currentFiles map and fires Added/Modified events as it goes, then
+// compares against the previous snapshot to fire Removed events.
+//
+// Story 3.5 (AC2): a single shared lastScan map keyed by absolute path
+// supports multiple roots. A folder that vanished or can't be read is
+// logged at Warn and skipped — files in the other folders are still
+// scanned, and the per-folder skip does NOT erase those files from
+// currentFiles (which would otherwise spuriously fire Removed events
+// for an unrelated folder).
+func (pw *PollingWatcher) scanFolders() {
 	currentFiles := make(map[string]fileSnapshot)
 
+	for _, dir := range pw.folders {
+		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
+			vlog.Get().Warn().Str("dir", dir).Msg("game folder missing/inaccessible, skipping in polling scan")
+			continue
+		}
+		pw.scanOneFolder(dir, currentFiles)
+	}
+
+	// Check for removed files (Removed event)
+	pw.mu.RLock()
+	for path := range pw.lastScan {
+		if _, exists := currentFiles[path]; !exists {
+			fileEvent := FileEvent{
+				EventType: EventRemoved,
+				FilePath:  path,
+				FileName:  filepath.Base(path),
+			}
+			if pw.handler != nil {
+				if err := pw.handler(fileEvent); err != nil {
+					vlog.Get().Error().Err(err).Str("file", path).Msg("polling watcher handler error")
+				}
+			}
+		}
+	}
+	pw.mu.RUnlock()
+
+	// Update snapshot
+	pw.mu.Lock()
+	pw.lastScan = currentFiles
+	pw.mu.Unlock()
+}
+
+// scanOneFolder walks a single folder, recording every .apk/.obb file
+// into currentFiles and firing Added/Modified events (with a 2s
+// per-file cooldown). It does NOT do removed-file detection — that is
+// done once in scanFolders against the union of all folders.
+func (pw *PollingWatcher) scanOneFolder(dir string, currentFiles map[string]fileSnapshot) {
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip inaccessible dirs
@@ -420,29 +546,6 @@ func (pw *PollingWatcher) scanDirectory(dir string) {
 	if err != nil {
 		vlog.Get().Warn().Err(err).Str("dir", dir).Msg("polling scan error, continuing")
 	}
-
-	// Check for removed files (Removed event)
-	pw.mu.RLock()
-	for path := range pw.lastScan {
-		if _, exists := currentFiles[path]; !exists {
-			fileEvent := FileEvent{
-				EventType: EventRemoved,
-				FilePath:  path,
-				FileName:  filepath.Base(path),
-			}
-			if pw.handler != nil {
-				if err := pw.handler(fileEvent); err != nil {
-					vlog.Get().Error().Err(err).Str("file", path).Msg("polling watcher handler error")
-				}
-			}
-		}
-	}
-	pw.mu.RUnlock()
-
-	// Update snapshot
-	pw.mu.Lock()
-	pw.lastScan = currentFiles
-	pw.mu.Unlock()
 }
 
 // RescanResult holds the summary of a rescan operation.

@@ -270,7 +270,7 @@ func TestSetupRouter_ArchivePassword_Empty_ForcesSetupMode(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeSetup)) // forced by empty archive_password
 
-	r := SetupRouter(modeVal, dataDir, nil, cfg, auth.NewSessionStore(context.Background()), nil, nil, nil, monitor.NewEventBus())
+	r := SetupRouter(modeVal, dataDir, nil, cfg, auth.NewSessionStore(context.Background()), nil, nil, nil, monitor.NewEventBus(), nil)
 
 	// Public route should return 503 (SetupMode503Handler).
 	req := httptest.NewRequest("GET", "/meta.7z", nil)
@@ -334,7 +334,7 @@ func TestSetupRouter_ArchivePassword_Set_NormalMode(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	r := SetupRouter(modeVal, dataDir, nil, cfg, auth.NewSessionStore(context.Background()), nil, nil, nil, monitor.NewEventBus())
+	r := SetupRouter(modeVal, dataDir, nil, cfg, auth.NewSessionStore(context.Background()), nil, nil, nil, monitor.NewEventBus(), nil)
 
 	// Use the root "/" endpoint instead of /meta.7z to avoid a nil-DB
 	// panic in the meta7zHandler goroutine. The SetupModeRedirectHandler

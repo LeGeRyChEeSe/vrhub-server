@@ -389,6 +389,14 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Story 3.5 (AC3): restart the file watcher if the game_folders set
+	// changed. The hook (wired in cmd/server/main.go) stops the running
+	// watcher and starts a new one on newCfg.GameFolders without a
+	// server restart. nil in test wiring / setup mode.
+	if h.OnGameFoldersChanged != nil && gameFoldersChanged(cfg.GameFolders, newCfg.GameFolders) {
+		h.OnGameFoldersChanged(newCfg.GameFolders)
+	}
+
 	// R13-P11: only push to the update checker if update-related
 	// fields actually changed. Avoids noise + DoS amplifier.
 	if h.UpdateConfigPusher != nil &&
@@ -781,6 +789,23 @@ func isValidServerHost(host string) bool {
 		}
 	}
 	return true
+}
+
+// gameFoldersChanged reports whether two game_folders slices differ as
+// ordered sets. Story 3.5 (AC3): used to decide whether the file
+// watcher must be restarted after a settings save. Order matters only
+// in that a reorder also triggers a restart — harmless, and cheaper
+// than building a set for the typical 1-3 folder case.
+func gameFoldersChanged(old, new []string) bool {
+	if len(old) != len(new) {
+		return true
+	}
+	for i := range old {
+		if old[i] != new[i] {
+			return true
+		}
+	}
+	return false
 }
 
 // validateMetadataURL prevents SSRF (R13-P8): rejects non-https schemes

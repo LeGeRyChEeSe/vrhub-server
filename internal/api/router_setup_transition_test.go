@@ -46,7 +46,7 @@ func TestB2_AdminAPI_AllRoutesAvailable_AfterSetupTransition(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	// Collect (method, path) pairs registered on the router.
 	registered := make(map[string]bool)
@@ -161,7 +161,7 @@ password_hash = "` + string(hash) + `"
 	// for the late-binding to fail / not have happened yet).
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, dataDir, nil, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, dataDir, nil, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	// (1) GET /admin/api/games with no session but gameDB=nil
 	// → 503 DB_NOT_READY (the protected router requires a
@@ -278,7 +278,7 @@ func TestB2_SetupRouter_NormalMode_AllRoutesMounted(t *testing.T) {
 	}
 	defer gameDB.Close()
 
-	router := SetupRouter(mv, t.TempDir(), gameDB, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), gameDB, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Pass 1: chi.Walk verifies the routes are mounted (the
 	// B2 fix removed the gates, so they're always there).

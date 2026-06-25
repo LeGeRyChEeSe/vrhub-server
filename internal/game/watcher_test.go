@@ -95,8 +95,8 @@ func TestPollingWatcher_DetectsNewFiles(t *testing.T) {
 		return nil
 	}
 
-	pw := NewPollingWatcher(tmpDir, &mockImporter{})
-	if err := pw.Watch(tmpDir, handler); err != nil {
+	pw := NewPollingWatcher([]string{tmpDir}, &mockImporter{})
+	if err := pw.Watch(handler); err != nil {
 		t.Fatalf("failed to start watcher: %v", err)
 	}
 	defer pw.Stop()
@@ -162,8 +162,8 @@ func TestPollingWatcher_DetectsRemovedFiles(t *testing.T) {
 		return nil
 	}
 
-	pw := NewPollingWatcher(tmpDir, &mockImporter{})
-	if err := pw.Watch(tmpDir, handler); err != nil {
+	pw := NewPollingWatcher([]string{tmpDir}, &mockImporter{})
+	if err := pw.Watch(handler); err != nil {
 		t.Fatalf("failed to start watcher: %v", err)
 	}
 	defer pw.Stop()
@@ -277,11 +277,13 @@ func TestScanAndImport_EmptyDirectory(t *testing.T) {
 	}
 }
 
-func TestNewWatcher_EmptyDataDir(t *testing.T) {
+func TestNewWatcher_EmptyFolders(t *testing.T) {
 	mock := &mockImporter{}
-	_, err := NewWatcher("", mock)
-	if err == nil {
-		t.Fatal("expected error for empty data dir, got nil")
+	if _, err := NewWatcher(nil, mock); err == nil {
+		t.Fatal("expected error for nil folder set, got nil")
+	}
+	if _, err := NewWatcher([]string{}, mock); err == nil {
+		t.Fatal("expected error for empty folder set, got nil")
 	}
 }
 
@@ -289,7 +291,7 @@ func TestWatcher_IsSupported(t *testing.T) {
 	tmpDir := t.TempDir()
 	mock := &mockImporter{}
 
-	w, err := NewWatcher(tmpDir, mock)
+	w, err := NewWatcher([]string{tmpDir}, mock)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}
@@ -418,8 +420,8 @@ func TestPollingWatcher_SkipsNonAPKOBBCFiles(t *testing.T) {
 		return nil
 	}
 
-	pw := NewPollingWatcher(tmpDir, &mockImporter{})
-	if err := pw.Watch(tmpDir, handler); err != nil {
+	pw := NewPollingWatcher([]string{tmpDir}, &mockImporter{})
+	if err := pw.Watch(handler); err != nil {
 		t.Fatalf("failed to start watcher: %v", err)
 	}
 	defer pw.Stop()
@@ -458,8 +460,8 @@ func TestPollingWatcher_InitialScanCapturesExistingFiles(t *testing.T) {
 		return nil
 	}
 
-	pw := NewPollingWatcher(tmpDir, &mockImporter{})
-	if err := pw.Watch(tmpDir, handler); err != nil {
+	pw := NewPollingWatcher([]string{tmpDir}, &mockImporter{})
+	if err := pw.Watch(handler); err != nil {
 		t.Fatalf("failed to start watcher: %v", err)
 	}
 	defer pw.Stop()

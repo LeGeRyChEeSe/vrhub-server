@@ -110,6 +110,83 @@ func TestHandleSettingsPUT_Valid(t *testing.T) {
 	}
 }
 
+// TestHandleSettingsPUT_GameFoldersChangedHook verifies Story 3.5 AC3:
+// the OnGameFoldersChanged hook fires (with the new folder set) when a
+// settings save actually changes game_folders, and does NOT fire when
+// the folder set is unchanged.
+func TestHandleSettingsPUT_GameFoldersChangedHook(t *testing.T) {
+	doPUT := func(t *testing.T, startFolders, newFolders []string) (fired bool, gotFolders []string) {
+		cfg := &types.Config{
+			Server:      types.ServerConfig{Host: "127.0.0.1", Port: 8080},
+			Admin:       types.AdminConfig{Username: "admin", PasswordHash: testAdminPasswordHash},
+			GameFolders: startFolders,
+		}
+		h, _ := newSettingsTestHandler(t, cfg)
+		h.OnGameFoldersChanged = func(folders []string) {
+			fired = true
+			gotFolders = folders
+		}
+
+		session := h.SessionStore.Create("admin")
+		body, _ := json.Marshal(map[string]interface{}{
+			"server":       map[string]interface{}{"host": "127.0.0.1", "port": 8080},
+			"game_folders": newFolders,
+		})
+		req := httptest.NewRequest(http.MethodPut, "/admin/api/admin/settings", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
+		req = req.WithContext(contextWithSession(req.Context(), session))
+		w := httptest.NewRecorder()
+		h.HandleSettingsPUT(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+		}
+		return fired, gotFolders
+	}
+
+	t.Run("changed folders fires hook with new set", func(t *testing.T) {
+		fired, got := doPUT(t, []string{"/old/folder"}, []string{"/new/folder", "/another"})
+		if !fired {
+			t.Fatal("OnGameFoldersChanged should fire when game_folders change")
+		}
+		if len(got) != 2 || got[0] != "/new/folder" || got[1] != "/another" {
+			t.Errorf("hook got %v, want [/new/folder /another]", got)
+		}
+	})
+
+	t.Run("unchanged folders does not fire hook", func(t *testing.T) {
+		fired, _ := doPUT(t, []string{"/same/folder"}, []string{"/same/folder"})
+		if fired {
+			t.Error("OnGameFoldersChanged should NOT fire when game_folders are unchanged")
+		}
+	})
+}
+
+// TestGameFoldersChanged exercises the set-comparison helper directly.
+func TestGameFoldersChanged(t *testing.T) {
+	cases := []struct {
+		name     string
+		old, new []string
+		want     bool
+	}{
+		{"both nil", nil, nil, false},
+		{"identical", []string{"a", "b"}, []string{"a", "b"}, false},
+		{"added", []string{"a"}, []string{"a", "b"}, true},
+		{"removed", []string{"a", "b"}, []string{"a"}, true},
+		{"replaced", []string{"a"}, []string{"b"}, true},
+		{"reordered", []string{"a", "b"}, []string{"b", "a"}, true},
+		{"empty to one", nil, []string{"a"}, true},
+		{"one to empty", []string{"a"}, nil, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := gameFoldersChanged(c.old, c.new); got != c.want {
+				t.Errorf("gameFoldersChanged(%v, %v) = %v, want %v", c.old, c.new, got, c.want)
+			}
+		})
+	}
+}
+
 // TestHandleSettingsPUT_InvalidPort rejects ports out of range.
 func TestHandleSettingsPUT_InvalidPort(t *testing.T) {
 	cfg := &types.Config{Server: types.ServerConfig{Host: "127.0.0.1", Port: 8080}}

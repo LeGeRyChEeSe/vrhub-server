@@ -325,7 +325,7 @@ func TestIntegration_NetworkStatus_EndToEnd(t *testing.T) {
 	}
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
-	router := SetupRouter(modeVal, tmpDir, nil, cfg, sessionStore, nil, nil, c, nil)
+	router := SetupRouter(modeVal, tmpDir, nil, cfg, sessionStore, nil, nil, c, nil, nil)
 
 	// 4. Verify the handler is correctly wired: when we call the
 	//    handler directly (bypassing middleware), it should

@@ -158,7 +158,7 @@ func TestSetupModeMiddleware_SetupMode_RedirectsAdminSetupSubpaths(t *testing.T)
 }
 
 func TestSetupRouter_SetupMode_AdminSetupSubpathsRedirect(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	testCases := []string{
 		"/admin/setup/foo",
@@ -240,7 +240,7 @@ func TestSetupMode503Handler_NormalMode_AllowsThrough(t *testing.T) {
 }
 
 func TestSetupRouter_SetupMode_RedirectsRoot(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -255,7 +255,7 @@ func TestSetupRouter_SetupMode_RedirectsRoot(t *testing.T) {
 }
 
 func TestSetupRouter_SetupMode_AdminSetupAccessible(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/setup", nil)
 	w := httptest.NewRecorder()
@@ -267,7 +267,7 @@ func TestSetupRouter_SetupMode_AdminSetupAccessible(t *testing.T) {
 }
 
 func TestSetupRouter_SetupMode_AdminRedirects(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/games", nil)
 	w := httptest.NewRecorder()
@@ -282,7 +282,7 @@ func TestSetupRouter_SetupMode_AdminRedirects(t *testing.T) {
 }
 
 func TestSetupRouter_SetupMode_PublicRoutesReturn503(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	testPaths := []string{"/meta.7z", "/abc123/game.apk"}
 
@@ -311,7 +311,7 @@ func TestSetupRouter_SetupMode_PublicRoutesReturn503(t *testing.T) {
 // important assertion is the ROUTE is reachable (not blocked by 503 or
 // 401 setup-mode middleware).
 func TestSetupRouter_NormalMode_Meta7zIsPublic(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/meta.7z", nil)
 	w := httptest.NewRecorder()
@@ -326,7 +326,7 @@ func TestSetupRouter_NormalMode_Meta7zIsPublic(t *testing.T) {
 }
 
 func TestSetupRouter_NormalMode_RootRedirectsToAdmin(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -352,7 +352,7 @@ func TestSetupRouter_LoginRouteRegistered(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	body := []byte(`{"username":"admin","password":"hunter2"}`)
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/auth/login", bytes.NewReader(body))
@@ -377,7 +377,7 @@ func TestSetupRouter_LogoutRouteRegistered(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/auth/logout", nil)
 	w := httptest.NewRecorder()
@@ -411,7 +411,7 @@ func TestSetupRouter_EndToEndLoginFlow(t *testing.T) {
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
 
-	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Step 1: POST /admin/api/auth/login with HTML Accept → 302 to PostLoginRedirect.
 	loginBody := []byte(`{"username":"admin","password":"hunter2"}`)
@@ -520,7 +520,7 @@ func TestSetupRouter_EndToEndLoginFlow(t *testing.T) {
 // that wires the auth handler in setup mode would let attackers POST to
 // /admin/api/auth/login before the admin password has even been configured.
 func TestSetupRouter_LoginRouteNotRegisteredInSetupMode(t *testing.T) {
-	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeSetup), t.TempDir(), nil, nil, nil, nil, nil, nil, nil, nil)
 
 	body := []byte(`{"username":"admin","password":"any"}`)
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/auth/login", bytes.NewReader(body))
@@ -546,7 +546,7 @@ func TestSetupRouter_LoginRouteHandlesMissingConfig(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	body := []byte(`{"username":"admin","password":"any"}`)
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/auth/login", bytes.NewReader(body))
@@ -578,7 +578,7 @@ func TestSetupRouter_LoginAfterSetupTransition(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 	mv := modeVal(types.ModeNormal) // transition already happened
-	router := SetupRouter(mv, dataDir, nil, nil, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, dataDir, nil, nil, sessionStore, nil, nil, nil, nil, nil)
 
 	// Simulate the setup wizard: write config.toml with admin credentials.
 	// bcrypt hash for "hunter2" generated with MinCost (test speed).
@@ -642,7 +642,7 @@ func TestSetupRouter_LoginFormFallback_NoJS(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Simulate a browser submitting the form with the defaults in place
 	// (Content-Type: application/x-www-form-urlencoded, no JSON, no Accept header).
@@ -680,7 +680,7 @@ func TestSetupRouter_LoginRoute_NotProtected(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Step 1: GET /admin/login WITHOUT a session cookie.
 	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
@@ -729,7 +729,7 @@ func TestSetupRouter_UpdateApplyRoute_Reachable(t *testing.T) {
 
 	modeVal := new(atomic.Value)
 	modeVal.Store(string(types.ModeNormal))
-	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Login to obtain a valid session cookie.
 	loginBody := []byte(`{"username":"admin","password":"hunter2"}`)
@@ -829,7 +829,7 @@ func TestAdminLoginHandler_ServesLoginHTML(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
 	w := httptest.NewRecorder()
@@ -879,7 +879,7 @@ func TestAdminLoginHandler_DoesNotServeShell(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/login", nil)
 	w := httptest.NewRecorder()
@@ -931,7 +931,7 @@ func TestAdminRoot_Unauthenticated_RedirectsToLogin(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	w := httptest.NewRecorder()
@@ -959,7 +959,7 @@ func TestAdminRoot_Authenticated_ServesShell(t *testing.T) {
 	sessionStore := auth.NewSessionStore(context.Background())
 	defer sessionStore.Stop()
 
-	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(modeVal(types.ModeNormal), t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Login to obtain a valid session cookie.
 	loginBody := []byte(`{"username":"admin","password":"hunter2"}`)

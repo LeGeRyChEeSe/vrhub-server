@@ -53,7 +53,7 @@ func TestB3_ScriptsAPIKey_NoSession_Authenticates(t *testing.T) {
 
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// AC1: request to /admin/api/scripts/_ping with a valid X-API-Key
 	// and NO session cookie. Pre-fix: 302 to /admin/login. Post-fix: 200.
@@ -98,7 +98,7 @@ func TestB3_ScriptsSessionAuth_NoAPIKey_Authenticates(t *testing.T) {
 
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Login to obtain a valid session cookie.
 	loginBody := []byte(`{"username":"admin","password":"hunter2"}`)
@@ -157,7 +157,7 @@ func TestB3_ScriptsBothAuth_OK(t *testing.T) {
 
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// Login to obtain a valid session cookie.
 	loginBody := []byte(`{"username":"admin","password":"hunter2"}`)
@@ -219,7 +219,7 @@ func TestB3_ScriptsNoAuth_Returns401(t *testing.T) {
 
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// AC4a: GET /admin/api/scripts/status, NO cookie, NO X-API-Key.
 	// Pre-fix: 302 to /admin/login. Post-fix: 401 API_KEY_MISSING
@@ -267,7 +267,7 @@ func TestB3_ScriptsBadAPIKey_Returns401(t *testing.T) {
 
 	mv := new(atomic.Value)
 	mv.Store(string(types.ModeNormal))
-	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil)
+	router := SetupRouter(mv, t.TempDir(), nil, cfg, sessionStore, nil, nil, nil, nil, nil)
 
 	// AC4b: GET /admin/api/scripts/status with a bogus X-API-Key,
 	// NO session cookie. Pre-fix: 302 (session middleware blocked
