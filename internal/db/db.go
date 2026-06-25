@@ -693,6 +693,23 @@ func (d *DB) ListGamesForMeta7z() ([]types.GameEntry, error) {
 	return games, nil
 }
 
+// GetCatalogLastModified returns the most recent last_updated timestamp across
+// ALL games regardless of exposed status. Used for the Last-Modified header on
+// /meta.7z: any mutation (expose/unexpose/import/delete) bumps this value so
+// clients using Last-Modified comparison always detect catalog changes — even
+// when the unexposed game had a lower last_updated than the remaining exposed
+// games, which would otherwise leave Last-Modified unchanged.
+func (d *DB) GetCatalogLastModified() (time.Time, error) {
+	var ts sql.NullInt64
+	if err := d.conn.QueryRow(`SELECT MAX(last_updated) FROM games`).Scan(&ts); err != nil {
+		return time.Time{}, fmt.Errorf("get catalog last modified: %w", err)
+	}
+	if !ts.Valid {
+		return time.Time{}, nil
+	}
+	return time.Unix(ts.Int64, 0), nil
+}
+
 // GetGameByHash retrieves a game by its hash and exposed status.
 func (d *DB) GetGameByHash(hash string) (*types.GameEntry, error) {
 	if hash == "" {

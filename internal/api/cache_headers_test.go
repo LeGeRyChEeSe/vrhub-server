@@ -493,8 +493,12 @@ func TestMeta7zHandler_SetupMode_NoCacheHeaders(t *testing.T) {
 // Code-review patch F7: HTTP-handler-level coverage of the all-filtered
 // catalog case. The helper TestComputeCatalogETag_Empty only covers
 // the helper, not the handler. With an empty DB the handler must
-// still emit cache headers — Last-Modified anchored to the inception
-// sentinel (not the epoch), ETag stable, Cache-Control: no-cache.
+// still emit cache headers — Last-Modified anchored to max(last_updated) across
+// ALL games (including unexposed ones), ETag stable, Cache-Control: no-cache.
+// Regression guard for the "unexposed game causes Last-Modified to go stale"
+// bug: when the only change is hiding a game (exposed=false), the VRHub client's
+// OR-based cache check (Last-Modified OR ETag) must detect the mutation even when
+// it matches Last-Modified from a previous sync.
 func TestMeta7zHandler_AllFilteredCatalog_Headers(t *testing.T) {
 	tmpDir := t.TempDir()
 	d, err := db.Open(tmpDir + "/test.db")
@@ -512,14 +516,17 @@ func TestMeta7zHandler_AllFilteredCatalog_Headers(t *testing.T) {
 	}
 
 	// Insert one game with Exposed: false so BuildGameListForMeta7z
-	// filters it out, leaving `filtered = []`.
+	// filters it out, leaving `filtered = []`. The Last-Modified header
+	// must still reflect this game's last_updated (not the epoch and not
+	// the inception sentinel) so the client can detect the mutation.
+	gameTS := time.Unix(1_700_000_000, 0).UTC()
 	game := types.GameEntry{
 		GameName:    "Hidden Game",
 		ReleaseName: "hidden_v1",
 		PackageName: "com.hidden.test",
 		VersionCode: 1,
 		SizeBytes:   1024,
-		LastUpdated: time.Unix(1_700_000_000, 0).UTC(),
+		LastUpdated: gameTS,
 		Exposed:     false,
 	}
 	if err := d.InsertGame(game); err != nil {
@@ -541,23 +548,23 @@ func TestMeta7zHandler_AllFilteredCatalog_Headers(t *testing.T) {
 
 	lm := rec.Header().Get("Last-Modified")
 	if lm == "" {
-		t.Fatalf("Last-Modified should be present (using inception sentinel), got empty")
+		t.Fatalf("Last-Modified should be present, got empty")
 	}
-	// The sentinel must NOT be the epoch (1970-01-01). Parsing the
-	// header back to time.Time and checking > epoch catches the bug
-	// fixed by patch F2.
 	parsedLM, err := http.ParseTime(lm)
 	if err != nil {
 		t.Fatalf("Last-Modified %q is not a valid HTTP date: %v", lm, err)
 	}
+	// Must not be the epoch: even with a fully-hidden catalog, we must
+	// return a real timestamp (the unexposed game's last_updated) so
+	// clients can detect the mutation.
 	if parsedLM.Unix() <= 0 {
-		t.Errorf("Last-Modified on empty catalog should use inception sentinel, not epoch: %q", lm)
+		t.Errorf("Last-Modified on empty filtered catalog should not be epoch, got %q", lm)
 	}
-	if !parsedLM.After(time.Unix(1_700_000_000, 0).UTC()) {
-		// inceptionTime is set at handler construction, which is after
-		// the constant 1.7e9 (2023-11-14). A handler created in a
-		// modern Go test runner should yield a parsed LM > 2023-11-14.
-		t.Errorf("Last-Modified %q should be after 2023-11-14 (inception sentinel), got %v", lm, parsedLM)
+	// Must equal the unexposed game's last_updated (MAX across all games).
+	// HTTP dates have 1-second granularity, so compare at second precision.
+	if got, want := parsedLM.Unix(), gameTS.Unix(); got != want {
+		t.Errorf("Last-Modified = %v (unix %d), want game's last_updated %v (unix %d)",
+			parsedLM, got, gameTS, want)
 	}
 
 	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {

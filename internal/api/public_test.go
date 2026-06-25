@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
@@ -26,6 +27,16 @@ type testDB struct {
 
 func (t *testDB) ListGamesForMeta7z() ([]types.GameEntry, error) {
 	return t.games, nil
+}
+
+func (t *testDB) GetCatalogLastModified() (time.Time, error) {
+	var max time.Time
+	for _, g := range t.games {
+		if g.LastUpdated.After(max) {
+			max = g.LastUpdated
+		}
+	}
+	return max, nil
 }
 
 func TestMeta7zHandler_MissingPassword(t *testing.T) {

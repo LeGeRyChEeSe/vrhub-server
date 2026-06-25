@@ -51,6 +51,11 @@ type PublicAPIHandler struct {
 // GameListProvider provides game entries for meta.7z generation.
 type GameListProvider interface {
 	ListGamesForMeta7z() ([]types.GameEntry, error)
+	// GetCatalogLastModified returns MAX(last_updated) across ALL games
+	// (including unexposed) for use as the Last-Modified header on /meta.7z.
+	// This prevents the header from going stale when a recently-updated game
+	// is unexposed and would otherwise not appear in the filtered list.
+	GetCatalogLastModified() (time.Time, error)
 }
 
 // FileServerDB provides database methods needed by FileServerHandler.
@@ -251,27 +256,39 @@ func meta7zHandlerWithDeps(deps meta7zDeps) http.HandlerFunc {
 
 		filtered := archive.BuildGameListForMeta7z(games)
 
-		// Compute stable ETag + Last-Modified from the filtered list
-		// BEFORE any goroutine. If the client already has a fresh
-		// copy, we can short-circuit with a 304 and avoid the 7z
-		// generation entirely.
+		// ETag is computed from the filtered (exposed) game list — it reflects
+		// the actual archive content (package names + max last_updated).
 		etag := computeCatalogETag(filtered)
+
+		// Last-Modified uses MAX(last_updated) across ALL games, not just
+		// exposed ones. This ensures the header always advances when any
+		// catalog mutation occurs (expose/unexpose/import/delete), even
+		// when the mutated game is excluded from the filtered list.
+		// Without this, exposing a game that was previously the most-recently
+		// updated would leave Last-Modified unchanged — the VRHub client's
+		// OR-based cache check (Last-Modified OR ETag OR MD5) would then
+		// short-circuit on the matching Last-Modified and skip the download.
+		catalogTS, tsErr := deps.DB.GetCatalogLastModified()
 		var lastModified time.Time
-		for _, g := range filtered {
-			if g.LastUpdated.After(lastModified) {
-				lastModified = g.LastUpdated
+		if tsErr == nil && !catalogTS.IsZero() {
+			lastModified = time.Unix(catalogTS.Unix(), 0).UTC()
+		} else {
+			if tsErr != nil {
+				log.Warn().Err(tsErr).Msg("failed to get catalog last modified, falling back to filtered list")
+			}
+			// Fallback: derive from the filtered list (original behaviour).
+			for _, g := range filtered {
+				if g.LastUpdated.After(lastModified) {
+					lastModified = g.LastUpdated
+				}
+			}
+			if !lastModified.IsZero() {
+				lastModified = time.Unix(lastModified.Unix(), 0).UTC()
 			}
 		}
-		// Round to second granularity (matches HTTP date precision
-		// and SQLite epoch storage).
-		if !lastModified.IsZero() {
-			lastModified = time.Unix(lastModified.Unix(), 0).UTC()
-		} else {
-			// Empty catalog (no games or all filtered out): use the
-			// server's inception timestamp as a fresh sentinel
-			// instead of the epoch. A client sending If-Modified-Since:
-			// 1970-01-01 against an empty server is almost certainly
-			// misconfigured; replying 304 would mask the empty catalog.
+		if lastModified.IsZero() {
+			// Empty catalog: use inception time as sentinel so a stale
+			// If-Modified-Since never produces a spurious 304.
 			lastModified = deps.InceptionTime
 		}
 
