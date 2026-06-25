@@ -19,6 +19,7 @@ import (
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/archive"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/trailers"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 	chi "github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -256,6 +257,14 @@ func meta7zHandlerWithDeps(deps meta7zDeps) http.HandlerFunc {
 		// copy, we can short-circuit with a 304 and avoid the 7z
 		// generation entirely.
 		etag := computeCatalogETag(filtered)
+		// Story 11.3 (hybrid trailers): the configured trailer language changes
+		// the trailers/*.txt search links embedded in meta.7z, so fold it into
+		// the validator — otherwise a language change would not invalidate
+		// client caches and clients would keep the old links.
+		if lang := cfgTrailerLanguage(deps.Config); lang != "" {
+			sum := md5.Sum([]byte(etag + "|tl=" + lang))
+			etag = fmt.Sprintf("\"%s\"", hex.EncodeToString(sum[:]))
+		}
 		var lastModified time.Time
 		for _, g := range filtered {
 			if g.LastUpdated.After(lastModified) {
@@ -335,8 +344,21 @@ func meta7zHandlerWithDeps(deps meta7zDeps) http.HandlerFunc {
 		// surface a real 500 on failure. The catalog (game list + small
 		// metadata files) is modest in size, so in-memory buffering is
 		// acceptable.
+		// Story 11.3 (hybrid trailers): expose a trailer link for EVERY game.
+		// Games with a resolved/override trailer_url keep it; the rest get a
+		// YouTube search link for "{gameName} trailer" in the configured
+		// language. This is a transient view for archive generation only — it
+		// is never persisted to the DB (so adding an API key later can still
+		// upgrade the empty-trailer_url games to specific videos).
+		trailerLang := cfgTrailerLanguage(deps.Config)
+		withTrailers := make([]types.GameEntry, len(filtered))
+		for i, g := range filtered {
+			g.TrailerURL = trailers.EffectiveTrailerURL(g, trailerLang)
+			withTrailers[i] = g
+		}
+
 		var buf bytes.Buffer
-		if genErr := archive.GenerateMeta7z(ctx, filtered, metadata, &buf, archivePassword); genErr != nil {
+		if genErr := archive.GenerateMeta7z(ctx, withTrailers, metadata, &buf, archivePassword); genErr != nil {
 			log.Error().Err(genErr).Msg("meta.7z generation failed")
 			// Strip cache-validation headers before replying 5xx (a 500
 			// must not advertise ETag/Last-Modified/Cache-Control).
@@ -654,7 +676,7 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 				// Story 11.1 — Delivery channel B: the trailer URL is
 				// served as plain text from the game's DB column (no file
 				// on disk), parallel to notes.txt.
-				serveTrailerFile(w, r, game)
+				serveTrailerFile(w, r, game, cfgTrailerLanguage(deps.Config))
 				return
 			case isImageExtension(path):
 				serveMetadataImage(w, r, deps, game, path)
@@ -747,14 +769,32 @@ func serveNotesFile(w http.ResponseWriter, r *http.Request, deps fileServerDeps,
 // game's DB column (game.TrailerURL), NOT a file on disk: the server never
 // hosts the video, only the link.
 //
-// Games without a trailer (TrailerURL == "") return 404 — symmetric with the
-// listing, which omits the trailer.txt link for them.
-func serveTrailerFile(w http.ResponseWriter, r *http.Request, game *types.GameEntry) {
-	if game == nil || game.TrailerURL == "" {
+// cfgTrailerLanguage returns the configured trailer language (Story 11.3), or
+// "" when no config is wired. Used by the delivery layer to build the YouTube
+// search-link fallback. Takes *types.Config so it works for both meta7zDeps and
+// fileServerDeps call sites.
+func cfgTrailerLanguage(cfg *types.Config) string {
+	if cfg != nil {
+		return cfg.Trailer.Language
+	}
+	return ""
+}
+
+// Story 11.3 (hybrid): the body is the game's EFFECTIVE trailer URL — a
+// resolved/override video URL when present, otherwise a YouTube search link for
+// "{gameName} trailer" in `language`. 404 only when neither exists (a nameless
+// game), symmetric with the listing.
+func serveTrailerFile(w http.ResponseWriter, r *http.Request, game *types.GameEntry, language string) {
+	if game == nil {
 		http.NotFound(w, r)
 		return
 	}
-	data := []byte(game.TrailerURL)
+	url := trailers.EffectiveTrailerURL(*game, language)
+	if url == "" {
+		http.NotFound(w, r)
+		return
+	}
+	data := []byte(url)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
 	w.WriteHeader(http.StatusOK)
@@ -846,7 +886,9 @@ func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServer
 	// game has a resolved trailer URL. The URL lives on the DB row (not a
 	// file on disk), so this is independent of deps.Config. serveTrailerFile
 	// serves the body at GET /{hash}/trailer.txt.
-	if game.TrailerURL != "" {
+	// Story 11.3 (hybrid): every named game exposes trailer.txt — a resolved
+	// video URL, or a YouTube search link as the fallback.
+	if trailers.EffectiveTrailerURL(*game, cfgTrailerLanguage(deps.Config)) != "" {
 		fmt.Fprintf(w, "<li><a href=\"trailer.txt\">trailer.txt</a></li>\n")
 	}
 
