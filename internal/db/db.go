@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS games (
     obb_size_bytes INTEGER NOT NULL DEFAULT 0,
     obb_path       TEXT DEFAULT '',
     apk_path       TEXT DEFAULT '',
+    trailer_url    TEXT DEFAULT '',
     download_count       INTEGER NOT NULL DEFAULT 0,
     total_bandwidth_bytes INTEGER NOT NULL DEFAULT 0,
     last_download_at      INTEGER NOT NULL DEFAULT 0
@@ -153,6 +154,14 @@ func (d *DB) Migrate() error {
 		return fmt.Errorf("migrate add apk_path: %w", err)
 	}
 
+	// Story 11.1: add the games.trailer_url column to legacy databases.
+	// Stores a streaming trailer URL (YouTube watch link) resolved by the
+	// trailer cascade. Same idempotent PRAGMA table_info + ALTER TABLE
+	// pattern as apk_path above.
+	if err := d.migrateAddTrailerURL(); err != nil {
+		return fmt.Errorf("migrate add trailer_url: %w", err)
+	}
+
 	return nil
 }
 
@@ -198,8 +207,8 @@ func (d *DB) migrateAddHashUnique() error {
 func (d *DB) InsertGame(game types.GameEntry) error {
 	query := `
 		INSERT INTO games
-		(release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := d.conn.Exec(query,
@@ -220,6 +229,7 @@ func (d *DB) InsertGame(game types.GameEntry) error {
 		game.OBBSizeBytes,
 		game.OBBPath,
 		game.ApkPath,
+		game.TrailerURL,
 	)
 
 	if err != nil {
@@ -233,8 +243,8 @@ func (d *DB) InsertGame(game types.GameEntry) error {
 func (d *DB) InsertGameTx(tx *sql.Tx, game types.GameEntry) error {
 	query := `
 		INSERT OR REPLACE INTO games
-		(release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := tx.Exec(query,
@@ -255,6 +265,7 @@ func (d *DB) InsertGameTx(tx *sql.Tx, game types.GameEntry) error {
 		game.OBBSizeBytes,
 		game.OBBPath,
 		game.ApkPath,
+		game.TrailerURL,
 	)
 
 	if err != nil {
@@ -266,7 +277,7 @@ func (d *DB) InsertGameTx(tx *sql.Tx, game types.GameEntry) error {
 
 // GetGameByPackage retrieves a game by its package name.
 func (d *DB) GetGameByPackage(packageName string) (*types.GameEntry, error) {
-	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path FROM games WHERE package_name = ?`
+	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url FROM games WHERE package_name = ?`
 
 	row := d.conn.QueryRow(query, packageName)
 
@@ -277,6 +288,7 @@ func (d *DB) GetGameByPackage(packageName string) (*types.GameEntry, error) {
 	var obbSizeBytes int64
 	var obbPath string
 	var apkPath string
+	var trailerURL string
 	game := &types.GameEntry{}
 	err := row.Scan(
 		&game.ID,
@@ -297,6 +309,7 @@ func (d *DB) GetGameByPackage(packageName string) (*types.GameEntry, error) {
 		&obbSizeBytes,
 		&obbPath,
 		&apkPath,
+		&trailerURL,
 	)
 
 	if err != nil {
@@ -310,12 +323,13 @@ func (d *DB) GetGameByPackage(packageName string) (*types.GameEntry, error) {
 	game.OBBSizeBytes = obbSizeBytes
 	game.OBBPath = obbPath
 	game.ApkPath = apkPath
+	game.TrailerURL = trailerURL
 	return game, nil
 }
 
 // ListGames returns all games, optionally filtered by exposed status.
 func (d *DB) ListGames(exposed *bool) ([]types.GameEntry, error) {
-	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path FROM games`
+	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url FROM games`
 
 	var args []interface{}
 	if exposed != nil {
@@ -341,6 +355,7 @@ func (d *DB) ListGames(exposed *bool) ([]types.GameEntry, error) {
 		var obbSizeBytes int64
 		var obbPath string
 		var apkPath string
+		var trailerURL string
 		if err := rows.Scan(
 			&game.ID,
 			&game.ReleaseName,
@@ -360,6 +375,7 @@ func (d *DB) ListGames(exposed *bool) ([]types.GameEntry, error) {
 			&obbSizeBytes,
 			&obbPath,
 			&apkPath,
+			&trailerURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan game: %w", err)
 		}
@@ -370,6 +386,7 @@ func (d *DB) ListGames(exposed *bool) ([]types.GameEntry, error) {
 		game.OBBSizeBytes = obbSizeBytes
 		game.OBBPath = obbPath
 		game.ApkPath = apkPath
+		game.TrailerURL = trailerURL
 		games = append(games, game)
 	}
 
@@ -549,7 +566,7 @@ func (d *DB) CountGames() (int, error) {
 
 // ListAllGamesOrderedByName returns all games ordered by game_name ASC.
 func (d *DB) ListAllGamesOrderedByName() ([]types.GameEntry, error) {
-	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path FROM games ORDER BY game_name ASC`
+	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url FROM games ORDER BY game_name ASC`
 
 	rows, err := d.conn.Query(query)
 	if err != nil {
@@ -567,6 +584,7 @@ func (d *DB) ListAllGamesOrderedByName() ([]types.GameEntry, error) {
 		var obbSizeBytes int64
 		var obbPath string
 		var apkPath string
+		var trailerURL string
 		if err := rows.Scan(
 			&game.ID,
 			&game.ReleaseName,
@@ -586,6 +604,7 @@ func (d *DB) ListAllGamesOrderedByName() ([]types.GameEntry, error) {
 			&obbSizeBytes,
 			&obbPath,
 			&apkPath,
+			&trailerURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan game: %w", err)
 		}
@@ -596,6 +615,7 @@ func (d *DB) ListAllGamesOrderedByName() ([]types.GameEntry, error) {
 		game.OBBSizeBytes = obbSizeBytes
 		game.OBBPath = obbPath
 		game.ApkPath = apkPath
+		game.TrailerURL = trailerURL
 		games = append(games, game)
 	}
 
@@ -636,7 +656,7 @@ func (d *DB) UpdateGamesExposedTx(tx *sql.Tx, excludedPackages map[string]bool) 
 // ListGamesForMeta7z returns all games suitable for meta.7z generation.
 // Filters out corrupted and non-exposed games, ordered by popularity descending.
 func (d *DB) ListGamesForMeta7z() ([]types.GameEntry, error) {
-	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path FROM games WHERE corrupted = 0 AND exposed = 1 ORDER BY popularity DESC`
+	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url FROM games WHERE corrupted = 0 AND exposed = 1 ORDER BY popularity DESC`
 
 	rows, err := d.conn.Query(query)
 	if err != nil {
@@ -654,6 +674,7 @@ func (d *DB) ListGamesForMeta7z() ([]types.GameEntry, error) {
 		var obbSizeBytes int64
 		var obbPath string
 		var apkPath string
+		var trailerURL string
 		if err := rows.Scan(
 			&game.ID,
 			&game.ReleaseName,
@@ -673,6 +694,7 @@ func (d *DB) ListGamesForMeta7z() ([]types.GameEntry, error) {
 			&obbSizeBytes,
 			&obbPath,
 			&apkPath,
+			&trailerURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan game: %w", err)
 		}
@@ -683,6 +705,7 @@ func (d *DB) ListGamesForMeta7z() ([]types.GameEntry, error) {
 		game.OBBSizeBytes = obbSizeBytes
 		game.OBBPath = obbPath
 		game.ApkPath = apkPath
+		game.TrailerURL = trailerURL
 		games = append(games, game)
 	}
 
@@ -716,7 +739,7 @@ func (d *DB) GetGameByHash(hash string) (*types.GameEntry, error) {
 		return nil, fmt.Errorf("get game by hash: empty hash")
 	}
 
-	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path FROM games WHERE hash = ? AND exposed = 1`
+	query := `SELECT game_id, release_name, game_name, package_name, version_code, size_bytes, description, icon_url, thumbnail_url, last_updated, popularity, hash, corrupted, corruption_reason, exposed, obb_size_bytes, obb_path, apk_path, trailer_url FROM games WHERE hash = ? AND exposed = 1`
 
 	row := d.conn.QueryRow(query, hash)
 
@@ -727,6 +750,7 @@ func (d *DB) GetGameByHash(hash string) (*types.GameEntry, error) {
 	var obbSizeBytes int64
 	var obbPath string
 	var apkPath string
+	var trailerURL string
 	game := &types.GameEntry{}
 	err := row.Scan(
 		&game.ID,
@@ -747,6 +771,7 @@ func (d *DB) GetGameByHash(hash string) (*types.GameEntry, error) {
 		&obbSizeBytes,
 		&obbPath,
 		&apkPath,
+		&trailerURL,
 	)
 
 	if err != nil {
@@ -760,6 +785,7 @@ func (d *DB) GetGameByHash(hash string) (*types.GameEntry, error) {
 	game.OBBSizeBytes = obbSizeBytes
 	game.OBBPath = obbPath
 	game.ApkPath = apkPath
+	game.TrailerURL = trailerURL
 	return game, nil
 }
 
@@ -926,6 +952,54 @@ func (d *DB) migrateAddApkPath() error {
 	}
 	if _, err := d.conn.Exec(`ALTER TABLE games ADD COLUMN apk_path TEXT DEFAULT ''`); err != nil {
 		return fmt.Errorf("ALTER TABLE add apk_path: %w", err)
+	}
+	return nil
+}
+
+// migrateAddTrailerURL adds the games.trailer_url column to legacy DBs
+// (Story 11.1). Idempotent: returns nil if the column already exists.
+//
+// Empty DEFAULT '' matches the GameEntry.TrailerURL zero value, so all
+// existing rows survive the ALTER as "no trailer" and the meta.7z /
+// listing channels emit nothing for them until the resolver (or an
+// operator override sidecar) populates the column.
+func (d *DB) migrateAddTrailerURL() error {
+	has, err := hasColumn(d, "trailer_url")
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	if _, err := d.conn.Exec(`ALTER TABLE games ADD COLUMN trailer_url TEXT DEFAULT ''`); err != nil {
+		return fmt.Errorf("ALTER TABLE add trailer_url: %w", err)
+	}
+	return nil
+}
+
+// UpdateTrailerURL sets the games.trailer_url column for the game matching
+// packageName. Story 11.1 (Delivery contract): the resolver and the scanner
+// override both call this to persist a resolved trailer link. Passing an
+// empty url clears the trailer (so an operator who removes the sidecar file
+// can un-set it on the next rescan). Returns ErrGameNotFound if no game
+// matches the package name.
+func (d *DB) UpdateTrailerURL(packageName, url string) error {
+	if packageName == "" {
+		return fmt.Errorf("update trailer_url: empty package name")
+	}
+	// C-09: bump last_updated so the change is visible in the admin UI's
+	// "recently updated" feed and invalidates the meta.7z ETag.
+	query := `UPDATE games SET trailer_url = ?, last_updated = ? WHERE package_name = ?`
+	result, err := d.conn.Exec(query, url, time.Now().Unix(), packageName)
+	if err != nil {
+		return fmt.Errorf("update trailer_url for %q: %w", packageName, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update trailer_url for %q: %w", packageName, err)
+	}
+	if rowsAffected == 0 {
+		return ErrGameNotFound
 	}
 	return nil
 }

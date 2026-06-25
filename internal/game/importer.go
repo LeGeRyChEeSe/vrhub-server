@@ -14,6 +14,7 @@ import (
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	vlog "github.com/LeGeRyChEeSe/vrhub-server/internal/log"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/trailers"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
@@ -198,11 +199,24 @@ func (gm *GameManager) ImportAPK(filePath string) error {
 		}
 
 		updateQuery := `UPDATE games SET exposed = ?, last_updated = ?, size_bytes = ?, game_name = ?, apk_path = ? WHERE package_name = ?`
+		updateArgs := []any{true, now.Unix(), existing.SizeBytes, newGameName, filePath, meta.PackageName}
+		// Story 11.1 (AC1 — rescan path): pick up an operator trailer
+		// override sidecar ({releaseName}.trailer / trailer.url) dropped next
+		// to the APK after the first import. The override is the always-wins
+		// step of the resolution cascade, so on rescan it must update
+		// trailer_url even when a value was previously auto-resolved. Only set
+		// it when a sidecar is actually present, so a rescan never clears an
+		// existing URL.
+		if overrideURL := trailers.ReadOverrideForDir(filepath.Dir(filePath), meta.PackageName); overrideURL != "" {
+			updateQuery = `UPDATE games SET exposed = ?, last_updated = ?, size_bytes = ?, game_name = ?, apk_path = ?, trailer_url = ? WHERE package_name = ?`
+			updateArgs = []any{true, now.Unix(), existing.SizeBytes, newGameName, filePath, overrideURL, meta.PackageName}
+			vlog.Get().Debug().Str("package", meta.PackageName).Str("url", overrideURL).Msg("trailer override sidecar applied on rescan")
+		}
 		// Story 9.10: refresh apk_path on duplicate detection — the
 		// operator may have moved the file within game_folders between
 		// scans, and we want the file server to find it at the new
 		// location.
-		if _, execErr := tx.Exec(updateQuery, true, now.Unix(), existing.SizeBytes, newGameName, filePath, meta.PackageName); execErr != nil {
+		if _, execErr := tx.Exec(updateQuery, updateArgs...); execErr != nil {
 			tx.Rollback()
 			return fmt.Errorf("update game %q: %w", meta.PackageName, execErr)
 		}
@@ -270,6 +284,16 @@ func (gm *GameManager) ImportAPK(filePath string) error {
 
 	fileHash := vrpHash(meta.PackageName)
 
+	// Story 11.1 (Task 4 — operator override): look for a trailer sidecar
+	// next to the APK ("{releaseName}.trailer" or the generic "trailer.url").
+	// This is the always-wins step of the resolution cascade and guarantees
+	// the feature works end-to-end at import time, before any background
+	// resolver runs. Empty when no sidecar exists.
+	trailerURL := trailers.ReadOverrideForDir(filepath.Dir(filePath), meta.PackageName)
+	if trailerURL != "" {
+		vlog.Get().Debug().Str("package", meta.PackageName).Str("url", trailerURL).Msg("trailer override sidecar found at import")
+	}
+
 	// Create game entry
 	gameEntry := types.GameEntry{
 		ReleaseName:      meta.PackageName,
@@ -293,6 +317,8 @@ func (gm *GameManager) ImportAPK(filePath string) error {
 		// server uses this path to serve the file directly,
 		// removing the need for a staging copy to dataDir/games/.
 		ApkPath: filePath,
+		// Story 11.1: operator-override trailer URL (may be "").
+		TrailerURL: trailerURL,
 	}
 
 	if err := gm.database.InsertGame(gameEntry); err != nil {

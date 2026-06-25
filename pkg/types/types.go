@@ -21,6 +21,17 @@ type Config struct {
 	Metadata    MetadataConfig `toml:"metadata"`
 	Update      UpdateConfig   `toml:"update"`
 	Admin       AdminConfig    `toml:"admin"`
+	Trailer     TrailerConfig  `toml:"trailer"`
+}
+
+// TrailerConfig holds settings for the streaming-trailer feature (Story 11.1 /
+// 11.3).
+type TrailerConfig struct {
+	// Language is the language hint for trailer links (BCP-47 / ISO-639 code,
+	// e.g. "en", "fr"). Default "en". Used as the "hl" parameter of the YouTube
+	// search-link fallback built for every game. Surfaced in the admin settings
+	// (Power mode) as a global dropdown.
+	Language string `toml:"language"`
 }
 
 // AdminConfig holds admin credentials for the web UI.
@@ -113,6 +124,14 @@ type GameEntry struct {
 	// layout in that case (the operator can migrate them via the
 	// startup scan which backfills this column).
 	ApkPath string `json:"apk_path,omitempty" db:"apk_path"`
+	// TrailerURL is a streaming trailer link (a YouTube watch URL such as
+	// https://www.youtube.com/watch?v=XXXXXXXXXXX). Story 11.1: the server
+	// NEVER hosts the video bytes — it only resolves and exposes the URL so
+	// the VRHub client can stream it. Resolved via a cascade (operator
+	// override sidecar > oculusdb best-effort > YouTube Data API) and cached
+	// in the games.trailer_url column. Empty when no trailer is known; the
+	// meta.7z / listing channels emit nothing for such games.
+	TrailerURL string `json:"trailer_url,omitempty" db:"trailer_url"`
 }
 
 // ReviewGameEntry represents a game entry in the review response.

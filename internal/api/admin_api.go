@@ -45,6 +45,11 @@ func SanitizeConfig(cfg *types.Config) map[string]interface{} {
 			"url":              cfg.Metadata.URL,
 			"refresh_interval": cfg.Metadata.RefreshInterval.String(),
 		},
+		// Story 11.1/11.3: surface the global trailer language (a dropdown in
+		// the Power-mode settings).
+		"trailer": map[string]interface{}{
+			"language": cfg.Trailer.Language,
+		},
 		"database": map[string]interface{}{
 			"path": cfg.Database.Path,
 		},
