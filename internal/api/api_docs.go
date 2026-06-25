@@ -129,6 +129,12 @@ var endpointCatalog = []EndpointDoc{
 		ExampleCurl:    `curl -b cookies.txt -X POST http://HOST:PORT/admin/api/games/rescan`,
 	},
 	{
+		Method: "POST", Path: "/admin/api/trailers/resolve", Auth: "session",
+		Description:    "Resolve trailers for all games in the background (Story 11.3). With a YouTube API key set, resolves a specific video per game; without one, games keep their YouTube search-link fallback.",
+		ResponseSchema: `{"status": "resolving", "youtube_api_key_set": bool, "message": "..."}`,
+		ExampleCurl:    `curl -b cookies.txt -X POST http://HOST:PORT/admin/api/trailers/resolve`,
+	},
+	{
 		Method: "GET", Path: "/admin/api/update/status", Auth: "session",
 		Description:    "Server health + update checker status.",
 		ResponseSchema: `{"data": {"running": bool, "update_state": "...", "current_version": "..."}}`,

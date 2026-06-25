@@ -1366,6 +1366,98 @@ function renderSettingsForm(container, d) {
     var metaIntervalField = makeField('cfg-metadata-refresh-interval', i18n('config_metadata_refresh_interval'), 'text', metaIntervalValue, { defaultValue: '', helpKey: 'config_metadata_refresh_interval_help' });
     form.appendChild(metaIntervalField.group);
 
+    // Trailers section (Story 11.3) — global trailer language + optional YouTube
+    // Data API key + an on-demand "resolve now" action.
+    var trailerHeader = document.createElement('h3');
+    trailerHeader.textContent = i18n('config_trailer_section', 'Trailers');
+    trailerHeader.style.marginTop = 'var(--space-6)';
+    form.appendChild(trailerHeader);
+
+    // Language dropdown.
+    var trailerLangGroup = document.createElement('div');
+    trailerLangGroup.className = 'form-group';
+    var trailerLangLabel = document.createElement('label');
+    trailerLangLabel.className = 'form-label';
+    trailerLangLabel.textContent = i18n('config_trailer_language', 'Langue des trailers');
+    trailerLangLabel.htmlFor = 'cfg-trailer-language';
+    trailerLangGroup.appendChild(trailerLangLabel);
+    var trailerLangSelect = document.createElement('select');
+    trailerLangSelect.id = 'cfg-trailer-language';
+    trailerLangSelect.className = 'form-input';
+    if (readOnly) trailerLangSelect.disabled = true;
+    var trailerLangs = [
+        ['en', 'English'], ['fr', 'Français'], ['de', 'Deutsch'], ['es', 'Español'],
+        ['it', 'Italiano'], ['pt-BR', 'Português (BR)'], ['nl', 'Nederlands'],
+        ['pl', 'Polski'], ['ru', 'Русский'], ['ja', '日本語'], ['ko', '한국어'], ['zh', '中文']
+    ];
+    var currentTrailerLang = (d.trailer && d.trailer.language) ? d.trailer.language : 'en';
+    var hasCurrent = false;
+    trailerLangs.forEach(function(pair) {
+        var opt = document.createElement('option');
+        opt.value = pair[0];
+        opt.textContent = pair[1] + ' (' + pair[0] + ')';
+        if (pair[0] === currentTrailerLang) { opt.selected = true; hasCurrent = true; }
+        trailerLangSelect.appendChild(opt);
+    });
+    if (!hasCurrent && currentTrailerLang) {
+        // Preserve a configured code that is not in the curated list.
+        var optCur = document.createElement('option');
+        optCur.value = currentTrailerLang;
+        optCur.textContent = currentTrailerLang;
+        optCur.selected = true;
+        trailerLangSelect.appendChild(optCur);
+    }
+    trailerLangGroup.appendChild(trailerLangSelect);
+    var trailerLangHelp = document.createElement('p');
+    trailerLangHelp.style.cssText = 'font-size:0.8rem;opacity:0.7;margin-top:0.25rem;';
+    trailerLangHelp.textContent = i18n('config_trailer_language_help', 'Langue utilisée pour rechercher le trailer de chaque jeu (lien de recherche YouTube, et API si une clé est définie).');
+    trailerLangGroup.appendChild(trailerLangHelp);
+    form.appendChild(trailerLangGroup);
+
+    // Optional YouTube Data API key (write-only: never returned by the server).
+    var trailerKeyField = makeField('cfg-trailer-youtube-key', i18n('config_trailer_youtube_key', 'Clé API YouTube Data (optionnelle)'), 'password', '', { togglePassword: true, defaultValue: '' });
+    if (d.trailer && d.trailer.has_youtube_api_key) {
+        trailerKeyField.input.placeholder = i18n('config_trailer_youtube_key_set', '•••••• (clé enregistrée — laisser vide pour conserver)');
+    }
+    form.appendChild(trailerKeyField.group);
+    var trailerKeyHelp = document.createElement('p');
+    trailerKeyHelp.style.cssText = 'font-size:0.8rem;opacity:0.7;margin-top:0.25rem;';
+    trailerKeyHelp.textContent = i18n('config_trailer_youtube_key_help', 'Sans clé, chaque jeu reçoit un lien de recherche YouTube. Avec une clé, le serveur résout une vidéo précise par jeu (quota ~100 recherches/jour ; précision « 1er résultat » imparfaite).');
+    form.appendChild(trailerKeyHelp);
+
+    // "Resolve trailers now" action.
+    if (!readOnly) {
+        var resolveGroup = document.createElement('div');
+        resolveGroup.className = 'form-group';
+        var resolveBtn = document.createElement('button');
+        resolveBtn.type = 'button';
+        resolveBtn.className = 'btn btn-secondary';
+        resolveBtn.textContent = i18n('config_trailer_resolve_now', 'Résoudre les trailers maintenant');
+        var resolveStatus = document.createElement('span');
+        resolveStatus.style.cssText = 'margin-left:0.5rem;font-size:0.85rem;opacity:0.85;';
+        resolveBtn.addEventListener('click', function() {
+            resolveBtn.disabled = true;
+            resolveStatus.textContent = i18n('config_trailer_resolving', 'Résolution en cours…');
+            fetch('/admin/api/trailers/resolve', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'X-CSRF-Token': getCSRFToken() }
+            })
+            .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
+            .then(function(res) {
+                resolveBtn.disabled = false;
+                resolveStatus.textContent = (res.j && res.j.message) ? res.j.message : (res.ok ? 'OK' : 'Error');
+            })
+            .catch(function(err) {
+                resolveBtn.disabled = false;
+                resolveStatus.textContent = i18n('config_trailer_resolve_failed', 'Échec') + ': ' + err.message;
+            });
+        });
+        resolveGroup.appendChild(resolveBtn);
+        resolveGroup.appendChild(resolveStatus);
+        form.appendChild(resolveGroup);
+    }
+
     // Update section
     var updHeader = document.createElement('h3');
     updHeader.textContent = i18n('config_update_section');
@@ -1598,8 +1690,17 @@ function renderSettingsForm(container, d) {
             metadata: {
                 refresh_interval: metaIntervalField.input.value.trim(),
                 url: metaUrlField.input.value.trim()
+            },
+            trailer: {
+                language: trailerLangSelect.value
             }
         };
+        // Story 11.3: send the YouTube API key only when the operator typed one
+        // (the server preserves the existing key when the field is empty).
+        var trailerKey = trailerKeyField.input.value;
+        if (trailerKey) {
+            payload.trailer.youtube_api_key = trailerKey;
+        }
         var archivePwd = pwdField.input.value.trim();
         if (archivePwd) {
             if (archivePwd.length < 8) {
