@@ -673,9 +673,9 @@ func formatBytes(bytes int64) string {
 	if bytes < unit*1024 {
 		return fmt.Sprintf("%.1f KB", float64(bytes)/unit)
 	} else if bytes < unit*1024*1024 {
-		return fmt.Sprintf("%.1f MB", float64(bytes)/unit)
+		return fmt.Sprintf("%.1f MB", float64(bytes)/(unit*unit))
 	} else if bytes < unit*1024*1024*1024 {
-		return fmt.Sprintf("%.1f GB", float64(bytes)/unit)
+		return fmt.Sprintf("%.1f GB", float64(bytes)/(unit*unit*unit))
 	}
 	return fmt.Sprintf("%.1f TB", float64(bytes)/(unit*unit*unit*unit))
 }
