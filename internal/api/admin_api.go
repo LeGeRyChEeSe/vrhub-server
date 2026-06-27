@@ -181,9 +181,13 @@ func (h *AdminHandler) HandleScriptsGameDeleteDELETE(w http.ResponseWriter, r *h
 	h.HandleGameDeleteDELETE(w, r)
 }
 
-// HandleScriptsGameExposedPATCH aliases HandleExposedTogglePATCH.
+// HandleScriptsGameExposedPATCH is the /admin/api/scripts/* alias for the
+// exposed toggle. It calls exposedToggleCore directly (no CSRF): this
+// route is authenticated by APIKeyAuthMiddleware and has no session, so
+// the session-derived CSRF check in HandleExposedTogglePATCH would reject
+// every API-key request with 403.
 func (h *AdminHandler) HandleScriptsGameExposedPATCH(w http.ResponseWriter, r *http.Request) {
-	h.HandleExposedTogglePATCH(w, r)
+	h.exposedToggleCore(w, r)
 }
 
 // HandleScriptsGameMetadataPATCH — DEFERRED: the db package doesn't
@@ -205,9 +209,12 @@ func (h *AdminHandler) HandleScriptsGameMetadataPATCH(w http.ResponseWriter, r *
 	_, _ = w.Write([]byte(`{"error":{"message":"metadata PATCH not yet implemented; use the dedicated /exposed endpoint for boolean toggle","code":"NOT_IMPLEMENTED"}}`))
 }
 
-// HandleScriptsRescanPOST aliases HandleRescanPOST.
+// HandleScriptsRescanPOST is the /admin/api/scripts/* alias for the games
+// rescan. It calls rescanCore directly (no CSRF) for the same reason as
+// HandleScriptsGameExposedPATCH: API-key requests carry no session, so the
+// session-derived CSRF check would reject every one of them with 403.
 func (h *AdminHandler) HandleScriptsRescanPOST(w http.ResponseWriter, r *http.Request) {
-	h.HandleRescanPOST(w, r)
+	h.rescanCore(w, r)
 }
 
 // HandleScriptsStatusGET — server health is reported via the update

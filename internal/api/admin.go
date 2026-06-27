@@ -472,7 +472,18 @@ func (h *AdminHandler) HandleExposedTogglePATCH(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusForbidden, "CSRF token invalid or missing", "CSRF_INVALID")
 		return
 	}
+	h.exposedToggleCore(w, r)
+}
 
+// exposedToggleCore performs the exposed toggle. It is shared by the
+// session-authenticated route HandleExposedTogglePATCH (which runs a CSRF
+// check first) and the API-key-authenticated /admin/api/scripts/* alias
+// HandleScriptsGameExposedPATCH. The scripts sub-tree is protected by
+// APIKeyAuthMiddleware and carries no session, so a session-derived CSRF
+// token can never be presented there — running validateCSRF on that path
+// rejected every script request with 403. CSRF therefore lives in the
+// session wrapper only, not in this core.
+func (h *AdminHandler) exposedToggleCore(w http.ResponseWriter, r *http.Request) {
 	// Story 9.2 (B2): nil-DB guard (see requireDB).
 	if !h.requireDB(w) {
 		return
@@ -580,7 +591,16 @@ func (h *AdminHandler) HandleRescanPOST(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusForbidden, "CSRF token invalid or missing", "CSRF_INVALID")
 		return
 	}
+	h.rescanCore(w, r)
+}
 
+// rescanCore performs the games rescan. Shared by the
+// session-authenticated route HandleRescanPOST (which runs a CSRF check
+// first) and the API-key-authenticated /admin/api/scripts/* alias
+// HandleScriptsRescanPOST. See exposedToggleCore for why CSRF cannot live
+// in the core: the scripts sub-tree has no session, so validateCSRF would
+// reject every script request with 403.
+func (h *AdminHandler) rescanCore(w http.ResponseWriter, r *http.Request) {
 	// Story 9.2 (B2): nil-Importer guard. Rescan relies on the game
 	// manager (Importer), which is constructed from gameDB. In setup
 	// mode gameDB is nil and the manager is not built — we surface a
