@@ -959,7 +959,7 @@ func (d *DB) migrateAddApkPath() error {
 // migrateAddTrailerURL adds the games.trailer_url column to legacy DBs
 // (Story 11.1). Idempotent: returns nil if the column already exists.
 //
-// Empty DEFAULT '' matches the GameEntry.TrailerURL zero value, so all
+// An empty-string DEFAULT matches the GameEntry.TrailerURL zero value, so all
 // existing rows survive the ALTER as "no trailer" and the meta.7z /
 // listing channels emit nothing for them until the resolver (or an
 // operator override sidecar) populates the column.
