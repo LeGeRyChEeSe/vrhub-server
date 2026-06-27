@@ -99,23 +99,23 @@ func (s *Subscription) Unsubscribe() {
 	}
 	s.bus.mu.Lock()
 	if _, ok := s.bus.subs[s]; ok {
+		// Remove ourselves from the bus and close both channels while
+		// holding the write lock. Publish fans out under a read lock, so
+		// once delete() has run no publisher can still be mid-send on
+		// s.Events — closing it here cannot race a "send on closed
+		// channel". The `ok` guard makes repeated calls a safe no-op.
+		//
+		// Closing s.Events (not just s.done) honours the documented
+		// contract: consumers ranging over Events detect cleanup via a
+		// closed channel. The previous implementation deferred the close
+		// to a goroutine guarded by `<-s.done`, which — because s.done
+		// was already closed two lines above — always took the "already
+		// closed" branch and never closed Events at all.
 		delete(s.bus.subs, s)
 		close(s.done)
+		close(s.Events)
 	}
 	s.bus.mu.Unlock()
-
-	// Drain remaining events so we don't block the publisher. Close
-	// happens after the bus no longer references us, so any subsequent
-	// Publish skips us.
-	select {
-	case <-s.done:
-		// already closed
-	default:
-		// Drain and close
-		go func() {
-			close(s.Events)
-		}()
-	}
 }
 
 // Done returns a channel that is closed when the subscription is
