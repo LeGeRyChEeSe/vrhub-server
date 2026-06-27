@@ -1186,28 +1186,38 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, deps fileServerDe
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", contentStart, contentEnd, fileSize))
 	}
 
-	w.WriteHeader(statusCode)
-
-	// Open file and seek to start position
+	// Open the file and seek to the start position BEFORE committing the
+	// status line. If the file was removed between the os.Lstat above and
+	// here (a TOCTOU window), or the seek fails, we can still emit a clean
+	// error response. Once w.WriteHeader has sent a 200/206 the only
+	// remaining option is a truncated body, which the VRHub client reads
+	// as a corrupt/empty download.
 	f, err := os.Open(filePath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			log.Debug().Str("file", filePath).Msg("file removed before it could be served")
+			http.NotFound(w, r)
+			return
+		}
 		log.Error().Err(err).Str("file", filePath).Msg("failed to open file for serving")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
 
 	if contentStart > 0 {
-		_, err = f.Seek(contentStart, io.SeekStart)
-		if err != nil {
+		if _, err := f.Seek(contentStart, io.SeekStart); err != nil {
 			log.Error().Err(err).Str("file", filePath).Msg("failed to seek in file")
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
 
+	w.WriteHeader(statusCode)
+
 	// Stream partial or full content — never buffer entire file in memory
 	bytesToRead := contentEnd - contentStart + 1
 	if _, err := io.CopyN(w, f, bytesToRead); err != nil {
-		f.Close()
 		log.Warn().Err(err).Str("file", filePath).Msg("error streaming file to client")
 		return
 	}
