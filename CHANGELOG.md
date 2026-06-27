@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-06-27
+
+### Added
+
+- **Trailer resolution cascade (Story 11.1):** A new `[trailer]` config section (`language`,
+  optional `youtube_api_key`) drives a three-step resolver: operator override sidecar
+  (`{releaseName}.trailer` or `trailer.url`) → OculusDB best-effort → YouTube Data API /
+  search fallback. `ResolveMissing` batch-resolves all games with an empty `trailer_url`
+  at startup and on demand.
+- **Hybrid trailer delivery (Story 11.3):** Every named game now exposes a trailer link via
+  `meta.7z` and the directory listing. When a specific video URL is resolved it is served
+  directly; otherwise a YouTube search link (`youtube.com/results?search_query=…`) is
+  generated from the configured language. The trailer language is folded into the `meta.7z`
+  ETag so a language change automatically invalidates client caches.
+- **Admin Trailers settings (Story 11.3):** Power-mode admin settings now include a Trailers
+  section: a trailer-language dropdown, a write-only YouTube Data API key field (value never
+  returned by the server), and a "Resolve trailers now" button (`POST /admin/api/trailers/resolve`)
+  that triggers on-demand resolution without a server restart.
+- **Multi-folder file watcher (Story 3.5):** `game_folders` now accepts multiple directories.
+  The watcher visits every configured folder, skipping missing or inaccessible ones with a
+  warning. A new `WatcherManager` serialises Start/Restart/Stop behind a mutex so a
+  settings-driven folder change restarts the watcher safely without a server restart.
+
+### Fixed
+
+- **`meta.7z` `Last-Modified` anchor:** The `Last-Modified` response header is now derived
+  from `MAX(last_updated)` across all games in the database, not just the subset currently
+  exposed. Previously, hiding the most-recently-updated game left `Last-Modified` unchanged,
+  causing VRHub clients to short-circuit on the matching header and skip the download.
+- **Trailer override on rescan:** The operator override sidecar (`{releaseName}.trailer`) is
+  now read and applied when an already-imported APK is rescanned, not only on first import.
+  Previously, dropping a sidecar next to an existing APK had no effect until a server restart.
+
 ## [0.1.4] - 2026-06-23
 
 ### Added
