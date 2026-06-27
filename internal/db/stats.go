@@ -1,6 +1,8 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -162,7 +164,7 @@ func (d *DB) GetStatsForHash(hash string) (GameStats, error) {
 		&s.TotalBandwidthBytes,
 		&s.GameFileSize,
 	); err != nil {
-		if err.Error() == "sql: no rows in result set" {
+		if errors.Is(err, sql.ErrNoRows) {
 			return GameStats{}, ErrGameNotFound
 		}
 		return GameStats{}, fmt.Errorf("get stats for hash %q: %w", hash, err)
