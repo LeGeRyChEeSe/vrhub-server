@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI formatting regression:** The `migrateAddTrailerURL` doc comment in `internal/db/db.go`
+  contained a literal `''` that `gofmt` rewrites to a typographic quote, leaving `main` not
+  `gofmt`-clean and failing the CI "Verify formatting" step for every subsequent push and PR.
+  Reworded the comment so the file is `gofmt`-stable (same class of regression as the earlier
+  `apk_path` migration comment).
+
 ## [0.1.5] - 2026-06-27
 
 ### Added
