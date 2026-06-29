@@ -22,6 +22,16 @@ type Config struct {
 	Update      UpdateConfig   `toml:"update"`
 	Admin       AdminConfig    `toml:"admin"`
 	Trailer     TrailerConfig  `toml:"trailer"`
+	Archive     ArchiveConfig  `toml:"archive"`
+}
+
+// ArchiveConfig holds settings for the split-7z game archives served to VRP /
+// Cyberdeck clients (Issue #1).
+type ArchiveConfig struct {
+	// SplitSize is the per-volume size handed to 7z's -v flag (e.g. "2g",
+	// "500m"). Each game archive is split into {releaseName}.7z.001, .002, …
+	// of this size. Default "2g". Invalid values fall back to the default.
+	SplitSize string `toml:"split_size"`
 }
 
 // TrailerConfig holds settings for the streaming-trailer feature (Story 11.1 /

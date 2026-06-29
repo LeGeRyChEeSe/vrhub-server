@@ -87,10 +87,31 @@ can short-circuit downloads when the archive is unchanged.
 
 ### `GET /{hash}/`
 
-HTML directory listing of the package subdirectories the server
-exposes for the given `{hash}`. The page is a self-contained HTML
-document with a single table; the VRHub client does not parse it,
-it is here for human operators and the legacy VRHub "browse" UI.
+HTML directory listing of the files the server exposes for the given
+`{hash}`. Clients (the VRHub Android app and VR-CyberDeck) parse the
+`href`s in this page to discover what to download, then pull each
+linked file.
+
+The listing has two shapes depending on whether a split-7z archive has
+been generated for the game:
+
+- **Archive ready** (the default once background packing completes): the
+  split parts are listed directly — `{releaseName}.7z.001`,
+  `{releaseName}.7z.002`, … Clients merge the parts and extract the
+  AES-256 archive locally with the `archive_password`.
+- **Raw fallback** (before the archive exists): the package
+  subdirectory `{packageName}/` is listed, and clients descend into it
+  to fetch the raw `.apk`/`.obb`.
+
+Both formats are accepted by the clients, which auto-detect the
+presence of `.7z` entries.
+
+### `GET /{hash}/{releaseName}.7z.NNN`
+
+Binary download of one split-7z archive volume from
+`{data_dir}/games/{hash}/`. Supports the `Range` header for resumable
+downloads. Served only when the archive has been generated (see
+`GET /{hash}/`).
 
 ### `GET /{hash}/notes.txt`
 

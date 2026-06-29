@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/archive"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	vlog "github.com/LeGeRyChEeSe/vrhub-server/internal/log"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/trailers"
@@ -343,6 +344,11 @@ func (gm *GameManager) DeleteGameByPackage(packageName string) error {
 	if err := gm.database.DeleteGame(packageName); err != nil {
 		return fmt.Errorf("delete game %q: %w", packageName, err)
 	}
+	// Issue #1: drop the derived split-7z archive directory for this game so a
+	// deleted game stops being downloadable and frees its disk space.
+	if rmErr := archive.RemoveGameArchiveAll(gm.dataDir, vrpHash(packageName)); rmErr != nil {
+		vlog.Get().Warn().Err(rmErr).Str("package", packageName).Msg("delete game: failed to remove split-7z archive directory")
+	}
 	// Fix #5 (Round 11): Do NOT clean up per-package mutex from sync.Map.
 	// Deleting the mutex while other goroutines might be waiting on it creates a race condition
 	// where a new mutex is created and acquired before the old one is released.
@@ -367,6 +373,10 @@ func (gm *GameManager) UpdateGameExposed(packageName string, exposed bool) error
 func (gm *GameManager) DeleteGame(packageName string) error {
 	if err := gm.database.DeleteGame(packageName); err != nil {
 		return fmt.Errorf("delete game %q: %w", packageName, err)
+	}
+	// Issue #1: drop the derived split-7z archive directory (see DeleteGameByPackage).
+	if rmErr := archive.RemoveGameArchiveAll(gm.dataDir, vrpHash(packageName)); rmErr != nil {
+		vlog.Get().Warn().Err(rmErr).Str("package", packageName).Msg("delete game: failed to remove split-7z archive directory")
 	}
 	// Fix #5 (Round 11): Do NOT clean up per-package mutex from sync.Map (same reason as DeleteGameByPackage)
 	return nil

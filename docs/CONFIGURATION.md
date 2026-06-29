@@ -43,6 +43,9 @@ username          = "admin"
 password_hash     = "$2a$10$..."          # bcrypt; set by the wizard
 archive_password  = "your-cleartext-archive-password"
 api_key_hash      = "<sha256-hex-of-your-api-key>"
+
+[archive]
+split_size = "2g"                          # per-volume size of the split game 7z parts
 ```
 
 ## Top-level keys
@@ -114,6 +117,28 @@ password on disk would make the archive permanently unreadable.
 The mitigation is filesystem-level: restrict the ACL on the data
 directory, run the server behind a reverse proxy, and never copy
 `config.toml` to a less-trusted host.
+
+## `[archive]`
+
+| Key          | Type   | Default | Description                                                                       |
+|--------------|--------|---------|-----------------------------------------------------------------------------------|
+| `split_size` | string | `2g`    | Per-volume size of the split game archives, passed to 7-Zip's `-v` flag.          |
+
+Each exposed game is packed into a split, AES-256-encrypted 7z archive
+(`{releaseName}.7z.001`, `.7z.002`, …) under
+`{data_dir}/games/{hash}/`, encrypted with `archive_password`. This is
+the VRP/Rookie download format that the VRHub client and VR-CyberDeck
+expect: they list `GET /{hash}/`, download the parts, and extract them
+locally. Until a game's archive has been generated (it runs in the
+background after import), the server falls back to serving the raw
+APK/OBB files, which the same clients also accept.
+
+`split_size` accepts a positive integer optionally suffixed with a unit
+(`b`, `k`, `m`, `g`, case-insensitive), e.g. `500m` or `4096b`. Invalid
+values fall back to the `2g` default. The default stays under the 4 GiB
+FAT32 per-file limit for clients that stage downloads to such a volume.
+Changing the archive password regenerates every archive on the next
+server start.
 
 ## CLI overrides
 

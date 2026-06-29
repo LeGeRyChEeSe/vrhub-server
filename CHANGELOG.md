@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Split-7z game archives (VRP / Cyberdeck compatibility, Issue #1):** Each exposed game is
+  now packed into a split, AES-256-encrypted 7z archive (`{releaseName}.7z.001`, `.7z.002`, …)
+  under `{data_dir}/games/{hash}/`, encrypted with the existing `archive_password`. The public
+  listing at `GET /{hash}/` advertises the parts directly when the archive exists, and
+  `GET /{hash}/{releaseName}.7z.NNN` serves each volume with HTTP Range support. The archive's
+  internal layout (`{releaseName}/{apk}` + `{releaseName}/{packageName}/{obb}`) matches what
+  VR-CyberDeck and the VRHub Android client extract. Archives are generated in the background
+  at startup and after each import, so packing a large library never blocks startup or requests;
+  until a game's archive exists the server falls back to serving the raw APK/OBB (both clients
+  accept either format). A new `[archive] split_size` config key (default `2g`) controls the
+  per-volume size. No database migration: the on-disk parts plus a small `.archive.json` marker
+  (password hash + version code) are the source of truth, so a password change or game update
+  regenerates the archive automatically.
+
 ## [0.1.5] - 2026-06-27
 
 ### Added

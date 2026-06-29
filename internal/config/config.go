@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/BurntSushi/toml"
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/archive"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
@@ -66,6 +67,12 @@ func Load(dataDir string) (*types.Config, error) {
 	// fallback; an empty value would drop the hint.
 	if cfg.Trailer.Language == "" {
 		cfg.Trailer.Language = defaultTrailerLanguage
+	}
+	// Issue #1: default the split-7z volume size when the [archive] section is
+	// absent or carries an invalid value, so every install serves VRP-style
+	// game archives without extra setup.
+	if !archive.ValidateSplitSize(cfg.Archive.SplitSize) {
+		cfg.Archive.SplitSize = archive.DefaultSplitSize
 	}
 
 	return cfg, nil
