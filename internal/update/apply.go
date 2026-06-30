@@ -764,6 +764,40 @@ func isBinaryFileForCurrentPlatform(name string) bool {
 	return hasOS
 }
 
+// removeWithRetry tries to delete path up to 3 times with short delays between
+// attempts. On Windows, antivirus scanners (including Windows Defender) can
+// hold a file open briefly after the process that wrote it exits, causing
+// os.Remove to fail with "Access is denied". Waiting a short time is usually
+// enough for the scanner to release the handle.
+//
+// If deletion keeps failing, the file is renamed to a temp name in the same
+// directory and scheduled for background deletion. This lets the caller
+// proceed with its own rename into that slot.
+func removeWithRetry(path string) error {
+	const maxRetries = 3
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		if lastErr = os.Remove(path); lastErr == nil {
+			return nil
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
+		}
+	}
+	// Last resort: rename to a unique temp name in the same directory.
+	// A rename can succeed even when delete is denied (the file content stays
+	// on disk but the original name slot is freed, which is all we need).
+	tmpStale := path + fmt.Sprintf(".%d.stale", time.Now().UnixNano())
+	if mvErr := os.Rename(path, tmpStale); mvErr == nil {
+		go func() {
+			time.Sleep(10 * time.Second)
+			_ = os.Remove(tmpStale)
+		}()
+		return nil
+	}
+	return fmt.Errorf("remove after %d retries: %w", maxRetries, lastErr)
+}
+
 // replaceBinary replaces the current binary with the new one using the
 // platform-specific strategy. On Windows the prior binary is preserved as
 // `.updating` and the flag file is set so the next startup can recover if
@@ -784,24 +818,35 @@ func (a *Applicator) replaceBinary(newBinaryPath string) error {
 		// We only do this if exePath is currently present and has a sane
 		// size; otherwise the .updating might be the recovery copy we
 		// need to restore (handled by CheckPendingUpdate at startup).
+		//
+		// On Windows, antivirus scanners can hold the .updating file open
+		// briefly after a previous run exited (e.g. Windows Defender scanning
+		// the just-written binary). removeWithRetry retries a few times with
+		// short delays; if that still fails it tries to rename the file out of
+		// the way so the main rename below can succeed.
 		if _, statErr := os.Stat(exePath); statErr == nil {
 			if _, statErr := os.Stat(updatingPath); statErr == nil {
-				if rmErr := os.Remove(updatingPath); rmErr != nil {
-					logger.Warn().Err(rmErr).Str("path", updatingPath).Msg("Update apply: failed to remove stale .updating before rename")
+				if rmErr := removeWithRetry(updatingPath); rmErr != nil {
+					logger.Warn().Err(rmErr).Str("path", updatingPath).
+						Msg("Update apply: stale .updating could not be removed (antivirus may be holding it); proceeding with rename")
 				}
 			}
 		}
 
-		// Rename current to .updating. If the rename fails because
-		// .updating still exists (race with another updater), try once
-		// more after a forced remove.
+		// Rename current to .updating. If the rename fails (most likely
+		// because a stale .updating still exists and is locked by AV),
+		// perform one more cleanup attempt with retry then try again.
 		if err := os.Rename(exePath, updatingPath); err != nil {
-			if rmErr := os.Remove(updatingPath); rmErr == nil {
+			if rmErr := removeWithRetry(updatingPath); rmErr == nil {
 				if retryErr := os.Rename(exePath, updatingPath); retryErr != nil {
 					return fmt.Errorf("failed to rename current binary after cleanup: %w (original: %v)", retryErr, err)
 				}
 			} else {
-				return fmt.Errorf("failed to rename current binary: %w", err)
+				return fmt.Errorf(
+					"failed to rename current binary: %w — a stale %s file exists and is locked "+
+						"(antivirus is likely scanning it); delete it manually and retry the update",
+					err, updatingPath,
+				)
 			}
 		}
 
