@@ -69,15 +69,21 @@ is covered for all four supported operating systems.
    - [6.11 Make the server reachable from the Quest on the same Wi-Fi](#611-make-the-server-reachable-from-the-quest-on-the-same-wi-fi)
    - [6.12 Updating](#612-updating)
    - [6.13 Uninstalling](#613-uninstalling)
-7. [Command-line parameters reference](#7-command-line-parameters-reference)
-   - [7.1 `-data-dir`](#71--data-dir)
-   - [7.2 `-port`](#72--port)
-   - [7.3 Useful combinations](#73-useful-combinations)
-8. [Data directory layout](#8-data-directory-layout)
-9. [Post-install verification](#9-post-install-verification)
-10. [Updating (all platforms)](#10-updating-all-platforms)
-11. [Uninstalling (all platforms)](#11-uninstalling-all-platforms)
-12. [Frequently Asked Questions](#12-frequently-asked-questions)
+7. [Installing with Docker (any platform)](#7-installing-with-docker-any-platform)
+   - [7.1 Prerequisites](#71-prerequisites)
+   - [7.2 Run with Docker Compose](#72-run-with-docker-compose)
+   - [7.3 The setup wizard](#73-the-setup-wizard)
+   - [7.4 Updating](#74-updating)
+   - [7.5 Uninstalling](#75-uninstalling)
+8. [Command-line parameters reference](#8-command-line-parameters-reference)
+   - [8.1 `-data-dir`](#81--data-dir)
+   - [8.2 `-port`](#82--port)
+   - [8.3 Useful combinations](#83-useful-combinations)
+9. [Data directory layout](#9-data-directory-layout)
+10. [Post-install verification](#10-post-install-verification)
+11. [Updating (all platforms)](#11-updating-all-platforms)
+12. [Uninstalling (all platforms)](#12-uninstalling-all-platforms)
+13. [Frequently Asked Questions](#13-frequently-asked-questions)
 
 ---
 
@@ -181,13 +187,13 @@ configuration, database, metadata cache, backups. By default:
 > `/data/data/com.termux/files/home` on Android/Termux.
 
 You can **change** this directory with the `-data-dir` parameter
-(see [section 7](#7-command-line-parameters-reference)).
+(see [section 8](#8-command-line-parameters-reference)).
 
 ### 2.3 The network port
 
 By default, the server listens on port **`39457`**. You can change
 this port with the `-port` parameter (see
-[section 7](#7-command-line-parameters-reference)).
+[section 8](#8-command-line-parameters-reference)).
 
 > **If another program is already using this port**, you will see
 > an `EADDRINUSE` error at startup. Switch ports (e.g. `49500`) or
@@ -306,7 +312,7 @@ not corrupted during download.
 
 > **Tip**: the default port is `39457`. If you changed the port
 > with the `-port` parameter (see
-> [section 7](#7-command-line-parameters-reference)), adjust the
+> [section 8](#8-command-line-parameters-reference)), adjust the
 > URL accordingly.
 
 ### 3.6 Run in the background (Task Scheduler)
@@ -409,11 +415,11 @@ declining elevation):
 
 ### 3.9 Updating
 
-See [section 10](#10-updating-all-platforms).
+See [section 11](#11-updating-all-platforms).
 
 ### 3.10 Uninstalling
 
-See [section 11](#11-uninstalling-all-platforms).
+See [section 12](#12-uninstalling-all-platforms).
 
 ---
 
@@ -611,11 +617,11 @@ service that starts at login is **launchd**. You create an
 
 ### 4.9 Updating
 
-See [section 10](#10-updating-all-platforms).
+See [section 11](#11-updating-all-platforms).
 
 ### 4.10 Uninstalling
 
-See [section 11](#11-uninstalling-all-platforms).
+See [section 12](#12-uninstalling-all-platforms).
 
 ---
 
@@ -698,7 +704,7 @@ chmod +x vrhub-server
 ```
 
 > **If you want to use a different port or data directory**, see
-> [section 7](#7-command-line-parameters-reference).
+> [section 8](#8-command-line-parameters-reference).
 
 The server displays:
 
@@ -872,11 +878,11 @@ Docker images, WSL, etc.) that does not use systemd, you can use:
 
 ### 5.10 Updating
 
-See [section 10](#10-updating-all-platforms).
+See [section 11](#11-updating-all-platforms).
 
 ### 5.11 Uninstalling
 
-See [section 11](#11-uninstalling-all-platforms).
+See [section 12](#12-uninstalling-all-platforms).
 
 ---
 
@@ -1022,7 +1028,7 @@ chmod +x vrhub-server
 ```
 
 > **If you want to use a different port or data directory**, see
-> [section 7](#7-command-line-parameters-reference).
+> [section 8](#8-command-line-parameters-reference).
 
 The server displays:
 
@@ -1232,15 +1238,111 @@ client, enter:
 
 ### 6.12 Updating
 
-See [section 10](#10-updating-all-platforms).
+See [section 11](#11-updating-all-platforms).
 
 ### 6.13 Uninstalling
 
-See [section 11](#11-uninstalling-all-platforms).
+See [section 12](#12-uninstalling-all-platforms).
 
 ---
 
-## 7. Command-line parameters reference
+## 7. Installing with Docker (any platform)
+
+If you already have Docker installed, this is the fastest way to run
+`vrhub-server` &mdash; no manual binary download, no service manager
+setup. Works identically on Windows, macOS and Linux.
+
+### 7.1 Prerequisites
+
+- [Docker Engine](https://docs.docker.com/engine/install/) or
+  [Docker Desktop](https://www.docker.com/products/docker-desktop/),
+  with the Compose plugin (`docker compose version` should print a
+  version).
+- A folder containing your APK/OBB game library on the host.
+
+### 7.2 Run with Docker Compose
+
+The repository ships a ready-to-use `docker/docker-compose.yml`:
+
+```bash
+git clone https://github.com/LeGeRyChEeSe/vrhub-server.git
+cd vrhub-server/docker
+```
+
+Edit `docker-compose.yml` and point the games volume at your library
+(the host path on the left of the `:`; keep the container path
+`/games` on the right):
+
+```yaml
+volumes:
+  - ./data:/data
+  - /path/to/your/games:/games:ro
+```
+
+Then build and start the container:
+
+```bash
+docker compose up -d --build
+```
+
+This builds the image from the repository's `docker/Dockerfile`
+(multi-stage build producing a static, CGO-free binary on a
+`distroless` runtime image), starts it in the background, and:
+
+- persists the database, config, metadata cache and backups in
+  `./data` on the host (bind-mounted to `/data` in the container);
+- mounts your game library read-only at `/games` so the scanner can
+  index it;
+- publishes port `39457` on the host, matching the container's
+  default listen port.
+
+Check it started correctly:
+
+```bash
+docker compose logs -f
+```
+
+> **Don't have your own Dockerfile build set up?** You can also run
+> the published release without cloning the repository, using the
+> same volumes and port mapping shown above with `docker run` once an
+> image is published to a registry; until then, building locally from
+> the Dockerfile (as above) is the supported path.
+
+### 7.3 The setup wizard
+
+1. Open your browser and go to
+   <http://127.0.0.1:39457/admin/setup> (or the host's LAN IP from
+   another device).
+2. Follow the five steps (see
+   [section 2.4](#24-first-run-the-setup-wizard)). When asked for
+   game folders, use the **container path** (`/games`), not the host
+   path you set in `docker-compose.yml`.
+3. **Copy the admin API key** at the end.
+
+### 7.4 Updating
+
+```bash
+cd vrhub-server
+git pull
+cd docker
+docker compose up -d --build
+```
+
+Your data directory (`./data`) is untouched by the rebuild.
+
+### 7.5 Uninstalling
+
+```bash
+docker compose down
+```
+
+Add `-v` only if you also want to delete the named volumes Compose
+created (the bind-mounted `./data` and game folders are host
+directories and are never deleted by Docker).
+
+---
+
+## 8. Command-line parameters reference
 
 The binary accepts two parameters (and only two). Both are
 **optional** — without parameters, the server uses the default
@@ -1251,7 +1353,7 @@ values (see [section 2.2](#22-the-data-directory) and
 vrhub-server [-data-dir <path>] [-port <number>]
 ```
 
-### 7.1 `-data-dir`
+### 8.1 `-data-dir`
 
 > **What it does**: tells the server **where to store** its
 > configuration file, database, cache and backups (instead of the
@@ -1283,7 +1385,7 @@ vrhub-server -data-dir /path/to/folder
 > bigger disk, on a NAS, on an SD card, or simply to separate it
 > from your documents.
 
-### 7.2 `-port`
+### 8.2 `-port`
 
 > **What it does**: changes the TCP port on which the server
 > listens. Useful if port `39457` is already in use, or if you
@@ -1310,7 +1412,7 @@ vrhub-server -port 49500
 > (`http://127.0.0.1:49500/admin/setup`) and the one entered in
 > the VRHub client.
 
-### 7.3 Useful combinations
+### 8.3 Useful combinations
 
 | Use case                                | Command                                                                |
 |-----------------------------------------|------------------------------------------------------------------------|
@@ -1323,7 +1425,7 @@ vrhub-server -port 49500
 
 ---
 
-## 8. Data directory layout
+## 9. Data directory layout
 
 After the first launch, the data directory contains:
 
@@ -1351,7 +1453,7 @@ After the first launch, the data directory contains:
 
 ---
 
-## 9. Post-install verification
+## 10. Post-install verification
 
 Once the wizard is done and the server is in normal mode, run
 these commands to check that everything works (on the same
@@ -1392,7 +1494,7 @@ curl.exe -sI http://127.0.0.1:39457/admin/api/stats -H "X-API-Key: YOUR_KEY"
 
 ---
 
-## 10. Updating (all platforms)
+## 11. Updating (all platforms)
 
 Three methods, from the simplest to the most manual:
 
@@ -1435,7 +1537,7 @@ curl -fL -X POST http://127.0.0.1:39457/admin/api/update/apply -H "X-API-Key: YO
 
 ---
 
-## 11. Uninstalling (all platforms)
+## 12. Uninstalling (all platforms)
 
 Three steps, common to all platforms:
 
@@ -1532,7 +1634,7 @@ rm -rf ~/.vrhub-server
 
 ---
 
-## 12. Frequently Asked Questions
+## 13. Frequently Asked Questions
 
 ### 12.1 The server does not start and shows "EADDRINUSE"
 
