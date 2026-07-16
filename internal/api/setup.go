@@ -36,6 +36,22 @@ const (
 	defaultPort = 39457
 )
 
+// resolvedListenPort holds the port the server is actually listening on,
+// as resolved by main.go (-port flag > config > default) BEFORE the
+// router is constructed. The setup wizard's HandleCredentialsPOST uses
+// this instead of the hardcoded defaultPort when writing the first-run
+// config.toml, so a server launched with `-port 39999` persists 39999
+// instead of silently reverting to 39457 on the next restart.
+var resolvedListenPort atomic.Int32
+
+// SetResolvedListenPort records the actual listen port for the setup
+// wizard to persist into config.toml. Call before SetupRouter/
+// NewSetupHandler in production; safe to leave unset in tests (falls
+// back to defaultPort).
+func SetResolvedListenPort(port int) {
+	resolvedListenPort.Store(int32(port))
+}
+
 // getOutboundIP returns the IP address this machine uses to reach the
 // public internet. Implemented by opening a UDP socket to a public
 // address (no packets are actually sent — the connect() call is
@@ -180,10 +196,14 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	} else if os.IsNotExist(statErr) {
+		port := defaultPort
+		if p := resolvedListenPort.Load(); p > 0 {
+			port = int(p)
+		}
 		cfg = &types.Config{
 			Server: types.ServerConfig{
 				Host: defaultHost,
-				Port: defaultPort,
+				Port: port,
 				Mode: types.ModeNormal,
 			},
 			Database: types.DatabaseConfig{
