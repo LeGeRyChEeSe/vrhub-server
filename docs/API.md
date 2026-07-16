@@ -48,7 +48,7 @@ GET / HTTP/1.1
 ```json
 {
   "name": "vrhub-server",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "mode": "normal"
 }
 ```
@@ -84,6 +84,11 @@ can short-circuit downloads when the archive is unchanged.
 - The archive uses LZMA2 compression and AES-256 encryption, with
   the password from `[admin].archive_password`.
 - Format and field names match the original VRHub service.
+- Every game entry carries a `trailer_url` field: a resolved trailer
+  link if one was found (see `GET /{hash}/trailer.txt` below), or
+  otherwise a YouTube search-link fallback for `"{gameName} trailer"`
+  in the configured `[trailer].language` &mdash; never empty as long
+  as the game has a name.
 
 ### `GET /{hash}/`
 
@@ -103,6 +108,15 @@ description is available for the game.
 Game thumbnail image sourced from the MetaMetadata CDN. Cached
 on disk and served directly. Returns `404` if no image has been
 downloaded yet.
+
+### `GET /{hash}/trailer.txt`
+
+Plain-text trailer link for the game. Serves the resolved trailer URL
+(operator override, OculusDB, or YouTube fallback resolved at
+startup/refresh) if one is on record, otherwise falls back live to a
+YouTube search link for `"{gameName} trailer"`. Returns `404` only
+when the game has no name at all to search for. Listed in the
+`/{hash}/` directory listing whenever a link is available.
 
 ### `GET /{hash}/{packageName}/`
 

@@ -19,7 +19,7 @@ data_dir      = "C:\\Users\\you\\AppData\\Roaming\\vrhub-server"
 game_folders  = ["D:\\VR\\library", "D:\\VR\\sidequests"]
 
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 39457
 mode = "normal"          # "normal" or "setup"
 
@@ -43,6 +43,9 @@ username          = "admin"
 password_hash     = "$2a$10$..."          # bcrypt; set by the wizard
 archive_password  = "your-cleartext-archive-password"
 api_key_hash      = "<sha256-hex-of-your-api-key>"
+
+[trailer]
+language = "en"
 ```
 
 ## Top-level keys
@@ -62,7 +65,7 @@ the admin UI; re-scanning is automatic.
 
 | Key    | Type   | Default       | Description                                   |
 |--------|--------|---------------|-----------------------------------------------|
-| `host` | string | `127.0.0.1`   | Listen address. Set to `0.0.0.0` for LAN.     |
+| `host` | string | `0.0.0.0`     | Listen address. Binds all interfaces (LAN-reachable) by default; set to `127.0.0.1` to restrict to loopback. |
 | `port` | int    | `39457`       | TCP port to listen on.                        |
 | `mode` | string | `normal`      | `normal` or `setup`. Forced to `setup` if the archive password is missing. |
 
@@ -115,6 +118,22 @@ The mitigation is filesystem-level: restrict the ACL on the data
 directory, run the server behind a reverse proxy, and never copy
 `config.toml` to a less-trusted host.
 
+## `[trailer]`
+
+| Key        | Type   | Default | Description                                                    |
+|------------|--------|---------|------------------------------------------------------------------|
+| `language` | string | `en`    | BCP-47/ISO-639 hint (e.g. `fr`) used as the `hl` parameter for the YouTube search-link fallback and passed to the resolution cascade. Editable from the admin settings UI. |
+
+Every game gets a trailer link with zero configuration: the server
+resolves one automatically at startup and on metadata refresh, trying
+in order an operator-provided override sidecar
+(`{releaseName}.trailer` or `trailer.url` next to the game files),
+then OculusDB, then falls back to a YouTube search link for
+`"{gameName} trailer"` if nothing is found. Resolution only fills
+games whose `trailer_url` is still empty; already-resolved games are
+never re-queried. The link is exposed both in `meta.7z` (`trailer_url`
+field on every game) and via `GET /{hash}/trailer.txt`.
+
 ## CLI overrides
 
 Two CLI flags take precedence over `config.toml`:
@@ -124,9 +143,12 @@ Two CLI flags take precedence over `config.toml`:
 | `-data-dir` | Override the data directory entirely.                      |
 | `-port`     | Override `[server].port` for this run only.                 |
 
-`-host` is intentionally not exposed; the security guidance is to
-keep the default loopback bind and put a reverse proxy in front when
-LAN reachability is needed.
+`-host` is intentionally not exposed as a CLI flag; the server binds
+`0.0.0.0` by default so it is reachable from other devices on the LAN
+(required for VRHub clients on separate machines/headsets to connect).
+If you need to restrict it to loopback only, set `host = "127.0.0.1"`
+under `[server]` in `config.toml` and restart, or put a firewall/reverse
+proxy in front for finer-grained access control.
 
 ## First-run detection
 
