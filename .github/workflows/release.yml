@@ -42,7 +42,7 @@ jobs:
             if [ "$goos" = "windows" ]; then ext=".exe"; fi
             rm -rf "$stage" && mkdir -p "$stage"
             echo "Building ${goos}/${goarch}"
-            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w" \
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
               -o "${stage}/${bin}${ext}" ./cmd/server/
             if [ "$goos" = "windows" ]; then
               cp "$MANIFEST" "${stage}/${bin}${ext}.manifest"

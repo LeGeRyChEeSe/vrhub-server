@@ -31,6 +31,11 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
+// version is injected at build time via -ldflags "-X main.version=X.Y.Z"
+// (see .github/workflows/release.yml). Defaults to the last hardcoded
+// release for local `go build` runs that don't pass ldflags.
+var version = "0.1.4"
+
 func main() {
 	var dataDir string
 	var port int
@@ -41,6 +46,18 @@ func main() {
 
 	// Initialize logging.
 	vlog.Init()
+
+	// Propagate the build-time version into the update package so
+	// update.CurrentVersion reflects the actual running binary instead
+	// of the hardcoded package default. Without this, the update
+	// checker compares the latest GitHub release against a version
+	// that never changes across releases, so it never converges (an
+	// already-updated server keeps reporting "update available").
+	if parsedVersion, parseErr := update.ParseVersion(version); parseErr == nil {
+		update.SetCurrentVersion(parsedVersion)
+	} else {
+		vlog.Get().Warn().Err(parseErr).Str("version", version).Msg("failed to parse build version; using package default")
+	}
 
 	// Load configuration — returns nil on first-run (no config file).
 	cfg, err := config.LoadOrCreate(dataDir)
@@ -389,31 +406,19 @@ func main() {
 	// hash to disk, and log the plaintext ONCE so the operator can
 	// save it. Subsequent boots use the persisted hash; the plaintext
 	// is held in memory only after a fresh regenerate-via-settings.
-	if cfg != nil && cfg.Admin.APIKeyHash == "" {
-		plaintext, hash, err := auth.GenerateAPIKey()
-		if err != nil {
-			vlog.Get().Error().Err(err).Msg("failed to generate initial API key; API key auth will return 503 until configured")
-		} else {
-			cfg.Admin.APIKeyHash = hash
-			cfg.Admin.APIKeyPlaintext = plaintext
-			if writeErr := config.WriteConfig(cfg, dataDir); writeErr != nil {
-				vlog.Get().Error().Err(writeErr).Msg("failed to persist initial API key hash; API key auth will return 503 on next boot")
-			} else {
-				// Banner output: surface the plaintext ONCE on the
-				// server stderr so the operator can copy it. Future
-				// boots won't re-emit this (the hash is now persisted).
-				fmt.Fprintf(os.Stderr, "\n"+
-					"╔════════════════════════════════════════════════════════════════╗\n"+
-					"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
-					"║                                                                ║\n"+
-					"║  %s\n"+
-					"║                                                                ║\n"+
-					"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
-					"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
-					"║  page (requires admin session login) to rotate.                ║\n"+
-					"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
-				vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated; plaintext logged ONCE to stderr")
-			}
+	//
+	// This only covers the boot path (cfg loaded from disk). A
+	// first-run server that completes the setup wizard's live
+	// transition to normal mode (no restart) goes through
+	// api.SetupHandler.HandleLaunchPOST instead, which calls the same
+	// auth.EnsureAPIKey() helper — otherwise the API key would never
+	// be generated until the operator manually restarts the process.
+	if cfg != nil {
+		if plaintext, generated, keyErr := auth.EnsureAPIKey(dataDir, cfg); keyErr != nil {
+			vlog.Get().Error().Err(keyErr).Msg("failed to generate initial API key; API key auth will return 503 until configured")
+		} else if generated {
+			auth.PrintAPIKeyBanner(plaintext)
+			vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated; plaintext logged ONCE to stderr")
 		}
 	}
 
@@ -453,8 +458,6 @@ func main() {
 			}
 		}
 	}
-	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, gameFoldersChangedHook)
-
 	// Determine listen address.
 	// Live session 2026-06-08: default bind host is "0.0.0.0" (all
 	// interfaces) so the Meta Quest on the LAN can reach the catalog
@@ -474,6 +477,17 @@ func main() {
 	if cfg != nil {
 		cfg.Server.Port = resolvedPort
 	}
+
+	// Computed BEFORE SetupRouter so the setup wizard (first-run, cfg ==
+	// nil) persists the port the server is actually listening on instead
+	// of always writing the hardcoded 39457 default. Without this, a
+	// server launched with `-port 39999` would run the whole wizard on
+	// 39999 but write port=39457 to config.toml — silently switching to
+	// the wrong port on the next restart and breaking the VRHub client's
+	// connection.
+	api.SetResolvedListenPort(resolvedPort)
+
+	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, gameFoldersChangedHook)
 	host := "0.0.0.0"
 	if cfg != nil {
 		host = cfg.Server.Host
