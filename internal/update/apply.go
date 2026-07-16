@@ -1010,7 +1010,21 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 		} else if statErr == nil {
 			// Happy path: cleanup the leftover .updating now that the new
 			// binary is in place and running.
-			if err := os.Remove(updatingPath); err != nil && !os.IsNotExist(err) {
+			//
+			// On Windows the file just vacated by the old process's exe
+			// (renamed to .updating during replaceBinary) can still be
+			// held by the OS for a short window after the old process
+			// exits — Windows doesn't release the image-section lock on
+			// a running executable's backing file instantaneously, so an
+			// immediate os.Remove reliably fails with "Access is denied"
+			// even though the old process is already gone. Retry with a
+			// short backoff instead of giving up after one attempt; this
+			// is the standard workaround for self-replacing binaries on
+			// Windows. Without it, every update left a stale multi-MB
+			// .updating binary behind permanently (verified in manual
+			// testing: the file was still present, unchanged, minutes
+			// after the new process had fully started and stabilized).
+			if err := removeWithRetry(updatingPath, 10, 300*time.Millisecond); err != nil && !os.IsNotExist(err) {
 				logger.Warn().Err(err).Str("path", updatingPath).Msg("Update apply: failed to remove .updating")
 			}
 		}
@@ -1045,6 +1059,22 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 	}
 
 	return nil
+}
+
+// removeWithRetry calls os.Remove, retrying up to attempts times with a
+// fixed delay between tries. Used for the Windows .updating cleanup where
+// the file can remain briefly locked by the OS after the process that
+// owned it as its executable image has exited. Returns the last error
+// (or nil) if the file is gone by the time attempts are exhausted.
+func removeWithRetry(path string, attempts int, delay time.Duration) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.Remove(path); err == nil || os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(delay)
+	}
+	return err
 }
 
 // performBackup creates a backup of config.toml and vrhub.db before applying
