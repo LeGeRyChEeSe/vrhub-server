@@ -470,8 +470,6 @@ func main() {
 			}
 		}
 	}
-	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, gameFoldersChangedHook)
-
 	// Determine listen address.
 	// Live session 2026-06-08: default bind host is "0.0.0.0" (all
 	// interfaces) so the Meta Quest on the LAN can reach the catalog
@@ -491,6 +489,17 @@ func main() {
 	if cfg != nil {
 		cfg.Server.Port = resolvedPort
 	}
+
+	// Computed BEFORE SetupRouter so the setup wizard (first-run, cfg ==
+	// nil) persists the port the server is actually listening on instead
+	// of always writing the hardcoded 39457 default. Without this, a
+	// server launched with `-port 39999` would run the whole wizard on
+	// 39999 but write port=39457 to config.toml — silently switching to
+	// the wrong port on the next restart and breaking the VRHub client's
+	// connection.
+	api.SetResolvedListenPort(resolvedPort)
+
+	r := api.SetupRouter(modeVal, dataDir, gameDB, cfg, sessionStore, reloader, updatePusher, netChecker, monitorBus, gameFoldersChangedHook)
 	host := "0.0.0.0"
 	if cfg != nil {
 		host = cfg.Server.Host
