@@ -31,6 +31,11 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
+// version is injected at build time via -ldflags "-X main.version=X.Y.Z"
+// (see .github/workflows/release.yml). Defaults to the last hardcoded
+// release for local `go build` runs that don't pass ldflags.
+var version = "0.1.4"
+
 func main() {
 	var dataDir string
 	var port int
@@ -41,6 +46,18 @@ func main() {
 
 	// Initialize logging.
 	vlog.Init()
+
+	// Propagate the build-time version into the update package so
+	// update.CurrentVersion reflects the actual running binary instead
+	// of the hardcoded package default. Without this, the update
+	// checker compares the latest GitHub release against a version
+	// that never changes across releases, so it never converges (an
+	// already-updated server keeps reporting "update available").
+	if parsedVersion, parseErr := update.ParseVersion(version); parseErr == nil {
+		update.SetCurrentVersion(parsedVersion)
+	} else {
+		vlog.Get().Warn().Err(parseErr).Str("version", version).Msg("failed to parse build version; using package default")
+	}
 
 	// Load configuration — returns nil on first-run (no config file).
 	cfg, err := config.LoadOrCreate(dataDir)
