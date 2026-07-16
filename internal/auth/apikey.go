@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/config"
+	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
 // apiKeyBytes is the entropy size for a generated admin API key.
@@ -36,6 +39,38 @@ func GenerateAPIKey() (plaintext string, hash string, err error) {
 	h := sha256.Sum256([]byte(plaintext))
 	hash = hex.EncodeToString(h[:])
 	return plaintext, hash, nil
+}
+
+// EnsureAPIKey generates and persists an admin API key on cfg if one
+// isn't already configured (cfg.Admin.APIKeyHash == ""). Returns the
+// generated plaintext (empty if a key already existed or generation
+// failed) and whether a new key was actually created.
+//
+// This is called from two places: main.go at process startup (the
+// normal-boot path, cfg loaded from disk), and the setup wizard's
+// HandleLaunchPOST (the live setup→normal transition, no restart).
+// Without the second call site, a server that completes the wizard
+// without a manual restart would have no API key at all — every
+// /admin/api/scripts/* request would 503 with "API key authentication
+// not yet configured" despite the server being fully operational.
+func EnsureAPIKey(dataDir string, cfg *types.Config) (plaintext string, generated bool, err error) {
+	if cfg.Admin.APIKeyHash != "" {
+		return "", false, nil
+	}
+
+	plaintext, hash, err := GenerateAPIKey()
+	if err != nil {
+		return "", false, fmt.Errorf("failed to generate API key: %w", err)
+	}
+
+	cfg.Admin.APIKeyHash = hash
+	cfg.Admin.APIKeyPlaintext = plaintext
+
+	if err := config.WriteConfig(cfg, dataDir); err != nil {
+		return "", false, fmt.Errorf("failed to persist API key hash: %w", err)
+	}
+
+	return plaintext, true, nil
 }
 
 // VerifyAPIKey checks a presented plaintext API key against a stored

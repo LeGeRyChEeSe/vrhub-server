@@ -31,6 +31,21 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
+// printAPIKeyBanner surfaces a freshly generated API key plaintext ONCE
+// on stderr so the operator can copy it before it's gone from memory.
+func printAPIKeyBanner(plaintext string) {
+	fmt.Fprintf(os.Stderr, "\n"+
+		"╔════════════════════════════════════════════════════════════════╗\n"+
+		"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
+		"║                                                                ║\n"+
+		"║  %s\n"+
+		"║                                                                ║\n"+
+		"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
+		"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
+		"║  page (requires admin session login) to rotate.                ║\n"+
+		"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
+}
+
 func main() {
 	var dataDir string
 	var port int
@@ -389,31 +404,19 @@ func main() {
 	// hash to disk, and log the plaintext ONCE so the operator can
 	// save it. Subsequent boots use the persisted hash; the plaintext
 	// is held in memory only after a fresh regenerate-via-settings.
-	if cfg != nil && cfg.Admin.APIKeyHash == "" {
-		plaintext, hash, err := auth.GenerateAPIKey()
-		if err != nil {
-			vlog.Get().Error().Err(err).Msg("failed to generate initial API key; API key auth will return 503 until configured")
-		} else {
-			cfg.Admin.APIKeyHash = hash
-			cfg.Admin.APIKeyPlaintext = plaintext
-			if writeErr := config.WriteConfig(cfg, dataDir); writeErr != nil {
-				vlog.Get().Error().Err(writeErr).Msg("failed to persist initial API key hash; API key auth will return 503 on next boot")
-			} else {
-				// Banner output: surface the plaintext ONCE on the
-				// server stderr so the operator can copy it. Future
-				// boots won't re-emit this (the hash is now persisted).
-				fmt.Fprintf(os.Stderr, "\n"+
-					"╔════════════════════════════════════════════════════════════════╗\n"+
-					"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
-					"║                                                                ║\n"+
-					"║  %s\n"+
-					"║                                                                ║\n"+
-					"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
-					"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
-					"║  page (requires admin session login) to rotate.                ║\n"+
-					"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
-				vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated; plaintext logged ONCE to stderr")
-			}
+	//
+	// This only covers the boot path (cfg loaded from disk). A
+	// first-run server that completes the setup wizard's live
+	// transition to normal mode (no restart) goes through
+	// api.SetupHandler.HandleLaunchPOST instead, which calls the same
+	// auth.EnsureAPIKey() helper — otherwise the API key would never
+	// be generated until the operator manually restarts the process.
+	if cfg != nil {
+		if plaintext, generated, keyErr := auth.EnsureAPIKey(dataDir, cfg); keyErr != nil {
+			vlog.Get().Error().Err(keyErr).Msg("failed to generate initial API key; API key auth will return 503 until configured")
+		} else if generated {
+			printAPIKeyBanner(plaintext)
+			vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated; plaintext logged ONCE to stderr")
 		}
 	}
 
