@@ -1636,7 +1636,7 @@ rm -rf ~/.vrhub-server
 
 ## 13. Frequently Asked Questions
 
-### 12.1 The server does not start and shows "EADDRINUSE"
+### 13.1 The server does not start and shows "EADDRINUSE"
 
 **Cause**: another program uses port `39457` (or the port you
 chose).
@@ -1659,7 +1659,7 @@ chose).
 
 3. **Stop the program** that holds the port, or change the port.
 
-### 12.2 The wizard is not reachable from the browser
+### 13.2 The wizard is not reachable from the browser
 
 **Check**:
 
@@ -1672,7 +1672,7 @@ chose).
    `config.toml` or launch with `-data-dir …` then edit the
    config.
 
-### 12.3 The Quest cannot see the server on Wi-Fi
+### 13.3 The Quest cannot see the server on Wi-Fi
 
 **Check**:
 
@@ -1689,7 +1689,7 @@ chose).
 5. If you use a *guest Wi-Fi* or *AP isolation*, the Quest won't
    see the server. Connect to the main Wi-Fi.
 
-### 12.4 The server stops by itself (Android)
+### 13.4 The server stops by itself (Android)
 
 See [section 6.8](#68-stop-android-from-killing-the-server-in-the-background).
 In short:
@@ -1701,7 +1701,7 @@ In short:
 4. Add Termux to the whitelist of the manufacturer's "Battery
    Guardian" (Samsung, Xiaomi, Huawei…).
 
-### 12.5 The wizard asks to reuse an existing configuration
+### 13.5 The wizard asks to reuse an existing configuration
 
 If you reinstall the server **on the same machine** with a data
 directory that already contains a `config.toml`, the wizard will
@@ -1714,7 +1714,7 @@ To **start over from scratch**:
 2. Back up (or delete) the data directory.
 3. Restart the server: the wizard will appear again.
 
-### 12.6 I forgot my admin API key
+### 13.6 I forgot my admin API key
 
 1. Log into the admin UI with your **username and password** (not
    the API key).
@@ -1722,7 +1722,7 @@ To **start over from scratch**:
 3. A new key is generated and shown **once**: copy it
    immediately.
 
-### 12.7 I forgot my admin password
+### 13.7 I forgot my admin password
 
 There is **no** automatic recovery procedure. You must:
 
@@ -1737,7 +1737,7 @@ There is **no** automatic recovery procedure. You must:
 > of the API key) in a password manager, right from the first
 > install.
 
-### 12.8 The download is blocked by the antivirus (Windows)
+### 13.8 The download is blocked by the antivirus (Windows)
 
 **Rare cause**: some heuristic antivirus engines mark freshly
 downloaded Go binaries as suspicious.
@@ -1749,7 +1749,7 @@ downloaded Go binaries as suspicious.
    intact.
 2. Add the install folder to your antivirus whitelist.
 
-### 12.9 I want to use the server from outside home (Cloudflare tunnel)
+### 13.9 I want to use the server from outside home (Cloudflare tunnel)
 
 The `vrhub-group` project uses a Cloudflare tunnel. Refer to the
 specific documentation of that tunnel to set up remote access.
@@ -1758,7 +1758,7 @@ specific documentation of that tunnel to set up remote access.
 > adds risk. Use a strong admin password, do not share your API
 > key, and keep the server up to date.
 
-### 12.10 The server crashes on startup with "no such file or directory"
+### 13.10 The server crashes on startup with "no such file or directory"
 
 **Cause**: the `-data-dir` path points to a folder that does not
 exist and the server has no rights to create it.
