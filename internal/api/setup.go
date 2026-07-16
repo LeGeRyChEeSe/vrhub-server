@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/auth"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/config"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/game"
@@ -846,6 +847,30 @@ func (h *SetupHandler) HandleLaunchPOST(w http.ResponseWriter, r *http.Request) 
 	if reloadErr != nil || propagatedCfg == nil {
 		vlog.Get().Warn().Err(reloadErr).Msg("launch: post-save config reload failed, propagating in-memory cfg")
 		propagatedCfg = cfg
+	}
+
+	// First-run API key generation for the live setup→normal transition.
+	// main.go only generates the API key on a normal boot (cfg loaded
+	// from disk with a mode already set); a first-run server that
+	// reaches normal mode via this handler instead — the documented "no
+	// restart needed" path — would otherwise have no API key at all
+	// until the operator manually restarts the process, leaving every
+	// /admin/api/scripts/* request 503ing despite the server being
+	// fully operational.
+	if plaintext, generated, keyErr := auth.EnsureAPIKey(h.DataDir, propagatedCfg); keyErr != nil {
+		vlog.Get().Error().Err(keyErr).Msg("launch: failed to generate API key; API key auth will return 503 until a restart or manual regenerate")
+	} else if generated {
+		fmt.Fprintf(os.Stderr, "\n"+
+			"╔════════════════════════════════════════════════════════════════╗\n"+
+			"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
+			"║                                                                ║\n"+
+			"║  %s\n"+
+			"║                                                                ║\n"+
+			"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
+			"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
+			"║  page (requires admin session login) to rotate.                ║\n"+
+			"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
+		vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated (live setup transition); plaintext logged ONCE to stderr")
 	}
 
 	// Propagate the freshly-loaded cfg to PublicAPIHandler.Config,
