@@ -1065,6 +1065,15 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 			}
 		}
 
+		// Sweep any orphaned "<exe>.<nanos>.stale" files left behind by
+		// renameAsideAndDefer's 10s-delayed background removal, in case
+		// the process exited (crash, manual restart, service stop)
+		// before that goroutine fired. These accumulate one per failed
+		// update on a host where the antivirus lock outlasts the process
+		// lifetime — the exact scenario this whole cleanup path exists
+		// for — so a boot-time sweep is needed to actually bound them.
+		sweepStaleFiles(exePath)
+
 		// Read and parse the flag file.
 		flagPath := filepath.Join(dataDir, updatePendingFlag)
 		if info, err := os.Stat(flagPath); err == nil && info.Size() > 0 {
@@ -1149,6 +1158,22 @@ func renameAsideAndDefer(path string) error {
 		_ = os.Remove(tmpStale)
 	}()
 	return nil
+}
+
+// sweepStaleFiles removes any "<exePath>.<nanos>.stale" files left behind
+// by a previous renameAsideAndDefer call whose 10s background removal
+// never got to run (process exited early). Best-effort: a file that's
+// still locked is simply left for the next boot to retry. Called once at
+// startup so these don't accumulate indefinitely on a host where updates
+// repeatedly hit a long-lived antivirus lock.
+func sweepStaleFiles(exePath string) {
+	matches, err := filepath.Glob(exePath + ".*.stale")
+	if err != nil {
+		return
+	}
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
 }
 
 // performBackup creates a backup of config.toml and vrhub.db before applying

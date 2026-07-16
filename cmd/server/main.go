@@ -36,21 +36,6 @@ import (
 // release for local `go build` runs that don't pass ldflags.
 var version = "0.1.4"
 
-// printAPIKeyBanner surfaces a freshly generated API key plaintext ONCE
-// on stderr so the operator can copy it before it's gone from memory.
-func printAPIKeyBanner(plaintext string) {
-	fmt.Fprintf(os.Stderr, "\n"+
-		"╔════════════════════════════════════════════════════════════════╗\n"+
-		"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
-		"║                                                                ║\n"+
-		"║  %s\n"+
-		"║                                                                ║\n"+
-		"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
-		"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
-		"║  page (requires admin session login) to rotate.                ║\n"+
-		"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
-}
-
 func main() {
 	var dataDir string
 	var port int
@@ -432,7 +417,7 @@ func main() {
 		if plaintext, generated, keyErr := auth.EnsureAPIKey(dataDir, cfg); keyErr != nil {
 			vlog.Get().Error().Err(keyErr).Msg("failed to generate initial API key; API key auth will return 503 until configured")
 		} else if generated {
-			printAPIKeyBanner(plaintext)
+			auth.PrintAPIKeyBanner(plaintext)
 			vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated; plaintext logged ONCE to stderr")
 		}
 	}

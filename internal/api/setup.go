@@ -860,16 +860,7 @@ func (h *SetupHandler) HandleLaunchPOST(w http.ResponseWriter, r *http.Request) 
 	if plaintext, generated, keyErr := auth.EnsureAPIKey(h.DataDir, propagatedCfg); keyErr != nil {
 		vlog.Get().Error().Err(keyErr).Msg("launch: failed to generate API key; API key auth will return 503 until a restart or manual regenerate")
 	} else if generated {
-		fmt.Fprintf(os.Stderr, "\n"+
-			"╔════════════════════════════════════════════════════════════════╗\n"+
-			"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
-			"║                                                                ║\n"+
-			"║  %s\n"+
-			"║                                                                ║\n"+
-			"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
-			"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
-			"║  page (requires admin session login) to rotate.                ║\n"+
-			"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
+		auth.PrintAPIKeyBanner(plaintext)
 		vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated (live setup transition); plaintext logged ONCE to stderr")
 	}
 

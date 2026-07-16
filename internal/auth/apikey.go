@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/config"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
@@ -71,6 +72,23 @@ func EnsureAPIKey(dataDir string, cfg *types.Config) (plaintext string, generate
 	}
 
 	return plaintext, true, nil
+}
+
+// PrintAPIKeyBanner surfaces a freshly generated API key plaintext ONCE on
+// stderr so the operator can copy it before it's gone from memory. Shared
+// by both EnsureAPIKey call sites (main.go's normal boot and the setup
+// wizard's live launch handler) so the banner text can't drift between them.
+func PrintAPIKeyBanner(plaintext string) {
+	fmt.Fprintf(os.Stderr, "\n"+
+		"╔════════════════════════════════════════════════════════════════╗\n"+
+		"║  API KEY GENERATED — SAVE THIS KEY IMMEDIATELY                 ║\n"+
+		"║                                                                ║\n"+
+		"║  %s\n"+
+		"║                                                                ║\n"+
+		"║  Use it as the X-API-Key header on /admin/api/scripts/* routes. ║\n"+
+		"║  It will NOT be shown again. Regenerate via admin settings     ║\n"+
+		"║  page (requires admin session login) to rotate.                ║\n"+
+		"╚════════════════════════════════════════════════════════════════╝\n\n", plaintext)
 }
 
 // VerifyAPIKey checks a presented plaintext API key against a stored
