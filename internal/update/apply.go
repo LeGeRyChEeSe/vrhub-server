@@ -1033,13 +1033,34 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 			// testing: the file was still present, unchanged, minutes
 			// after the new process had fully started and stabilized).
 			if err := removeWithRetry(updatingPath, 10, 300*time.Millisecond); err != nil && !os.IsNotExist(err) {
-				// Retries exhausted (up to ~3s) and the file is still
-				// locked. Fall back to relocating it out of the way so it
-				// stops accumulating as permanent disk usage — same
-				// rename-aside-and-defer-delete strategy used before a
-				// new update's rename step.
+				// The quick 3s delete-retry budget wasn't enough. Verified
+				// in manual testing that an antivirus scan of the
+				// just-written executable can hold an exclusive-enough
+				// lock for MULTIPLE MINUTES in some environments — far
+				// too long to keep retrying a plain delete before
+				// startup can proceed. A rename typically succeeds much
+				// sooner than a delete under this kind of lock (it only
+				// needs to update the directory entry, not tear down the
+				// file), so try that first — renameAsideAndDefer frees
+				// the .updating name immediately in the common case and
+				// deletes the relocated copy 10s later in the background.
 				if relocErr := renameAsideAndDefer(updatingPath); relocErr != nil {
-					logger.Warn().Err(err).Str("path", updatingPath).Msg("Update apply: failed to remove .updating")
+					// Rename also failed (a genuinely exclusive lock).
+					// Keep retrying in the background with a long budget
+					// instead of blocking startup or giving up — this is
+					// purely cosmetic cleanup at this point (the running
+					// binary is already correct either way), and the
+					// next boot's CheckPendingUpdate would retry anyway
+					// if the process were killed before this finishes.
+					go func() {
+						for i := 0; i < 60; i++ {
+							time.Sleep(5 * time.Second)
+							if relocErr := renameAsideAndDefer(updatingPath); relocErr == nil {
+								return
+							}
+						}
+						logger.Warn().Str("path", updatingPath).Msg("Update apply: failed to remove .updating after extended retries")
+					}()
 				}
 			}
 		}
@@ -1118,6 +1139,9 @@ func removeStaleUpdatingFile(path string) error {
 func renameAsideAndDefer(path string) error {
 	tmpStale := fmt.Sprintf("%s.%d.stale", path, time.Now().UnixNano())
 	if mvErr := os.Rename(path, tmpStale); mvErr != nil {
+		if os.IsNotExist(mvErr) {
+			return nil
+		}
 		return fmt.Errorf("file is locked and could not be removed or relocated: %s", path)
 	}
 	go func() {
