@@ -687,6 +687,13 @@ func fileServerHandlerWithDeps(deps fileServerDeps) http.HandlerFunc {
 		// discovers screenshot images (*.jpg) from the package listing hrefs.
 		if !strings.Contains(path, "/") {
 			switch {
+			case archive.IsArchivePartName(path):
+				// Issue #1: split-7z volume download, e.g.
+				// GET /{hash}/{releaseName}.7z.001 served from
+				// {dataDir}/games/{hash}/. Must be handled before the
+				// package-name check below (the part name is not a package).
+				serveArchivePart(w, r, deps, game, path)
+				return
 			case path == "notes.txt":
 				serveNotesFile(w, r, deps, game)
 				return
@@ -870,6 +877,18 @@ func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServer
 		return
 	}
 
+	// Issue #1: when a split-7z archive has been generated for this game,
+	// advertise the parts ({releaseName}.7z.001, .002, …) DIRECTLY at /{hash}/
+	// instead of the raw {packageName}/ subdir. Both VRHub clients (the Android
+	// app and Cyberdeck) auto-detect ".7z" entries in the listing and switch to
+	// the merge+extract path; rclone copies every listed file, so we must NOT
+	// also expose the raw subdir (that would double the download). Until the
+	// archive exists we fall back to the raw {packageName}/ listing below.
+	var archiveParts []string
+	if deps.Config != nil {
+		archiveParts, _ = archive.GameArchiveParts(deps.Config.DataDir, game.Hash, game.ReleaseName)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
@@ -877,7 +896,12 @@ func servePackageListing(w http.ResponseWriter, r *http.Request, deps fileServer
 	fmt.Fprintf(w, "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>%s</title></head>\n<body>\n", title)
 	fmt.Fprintf(w, "<h1>%s</h1>\n<ul>\n", title)
 
-	if len(packages) == 0 {
+	if len(archiveParts) > 0 {
+		for _, part := range archiveParts {
+			encoded := url.PathEscape(part)
+			fmt.Fprintf(w, "<li><a href=\"%s\">%s</a></li>\n", encoded, htmlEscapeString(part))
+		}
+	} else if len(packages) == 0 {
 		fmt.Fprintf(w, "<p>No packages found.</p>\n")
 	} else {
 		for _, pkg := range packages {
@@ -1121,6 +1145,36 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, deps fileServerDe
 		filePath = filepath.Join(deps.Config.DataDir, "games", game.Hash, pkgName, fileName)
 	}
 
+	serveResolvedFile(w, r, deps, game, filePath, fileName, true)
+}
+
+// serveArchivePart serves one split-7z volume ({releaseName}.7z.NNN) from the
+// game's archive directory {dataDir}/games/{hash}/ (Issue #1). Range requests
+// are honoured so rclone / the Android client can resume. Only the first volume
+// (.7z.001) increments the download counter, so a multi-part game counts as a
+// single download rather than once per part.
+func serveArchivePart(w http.ResponseWriter, r *http.Request, deps fileServerDeps, game *types.GameEntry, fileName string) {
+	if deps.Config == nil {
+		log.Error().Msg("config not initialized for archive part download")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	// fileName is a single path component (the dispatcher only routes here when
+	// the path has no "/"), but defend against traversal regardless.
+	if strings.ContainsAny(fileName, `/\`) || strings.Contains(fileName, "..") || filepath.IsAbs(fileName) {
+		log.Warn().Str("hash", game.Hash).Str("file", fileName).Msg("path traversal attempt in archive part name")
+		http.NotFound(w, r)
+		return
+	}
+	filePath := filepath.Join(archive.GameArchiveDir(deps.Config.DataDir, game.Hash), fileName)
+	countDownload := strings.HasSuffix(fileName, ".7z.001")
+	serveResolvedFile(w, r, deps, game, filePath, fileName, countDownload)
+}
+
+// serveResolvedFile streams a concrete on-disk file (already resolved by the
+// caller) with HTTP Range support, symlink/directory rejection, and an optional
+// async download-stats increment (HTTP 200 only, when countDownload is true).
+func serveResolvedFile(w http.ResponseWriter, r *http.Request, deps fileServerDeps, game *types.GameEntry, filePath, fileName string, countDownload bool) {
 	// Verify file exists and is a regular file (not directory, not symlink)
 	info, err := os.Lstat(filePath)
 	if err != nil {
@@ -1234,7 +1288,7 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, deps fileServerDe
 	// usage statistics. The increment targets game.Hash; the
 	// IncrementDownloadStats method silently no-ops on an unknown hash
 	// (defense for "game deleted between GetGameByHash and now").
-	if statusCode == http.StatusOK && deps.StatsDB != nil && game.Hash != "" {
+	if countDownload && statusCode == http.StatusOK && deps.StatsDB != nil && game.Hash != "" {
 		hash := game.Hash
 		bytesServed := bytesToRead
 		go func() {

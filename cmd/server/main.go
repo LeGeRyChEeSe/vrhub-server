@@ -238,6 +238,42 @@ func main() {
 		// Runs in the background so it doesn't delay startup.
 		go gameManager.BackfillMissingIcons(context.Background())
 
+		// Issue #1: generate the split, AES-256-encrypted 7z archives that
+		// VRP/Cyberdeck clients (and the VRHub Android app) download and extract
+		// locally. Runs in the background so packing a large library never
+		// delays startup; until a game's archive exists the public API serves
+		// the raw APK/OBB as a fallback.
+		if cfg != nil {
+			go gameManager.SweepMissingArchives(context.Background(), cfg.Admin.ArchivePassword, cfg.Archive.SplitSize)
+		}
+
+		// ensureArchiveOnImport (re)generates a game's split-7z archive shortly
+		// after the watcher imports its APK, so a freshly dropped game becomes
+		// downloadable in VRP form without waiting for the next restart sweep.
+		// Best-effort: a missing password or metadata read just skips it.
+		archivePassword := ""
+		splitSize := ""
+		if cfg != nil {
+			archivePassword = cfg.Admin.ArchivePassword
+			splitSize = cfg.Archive.SplitSize
+		}
+		ensureArchiveOnImport := func(filePath string) {
+			if archivePassword == "" {
+				return
+			}
+			meta, metaErr := game.ExtractAPKMetadata(filePath)
+			if metaErr != nil || meta.PackageName == "" {
+				return
+			}
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+				defer cancel()
+				if err := gameManager.EnsureArchiveForPackage(ctx, meta.PackageName, archivePassword, splitSize); err != nil {
+					vlog.Get().Warn().Err(err).Str("package", meta.PackageName).Msg("watcher: failed to (re)generate split-7z archive")
+				}
+			}()
+		}
+
 		// Story 11.1 (Task 5): resolve trailer URLs for games that still have
 		// none. Best-effort and non-blocking: runs in the background so it
 		// never delays startup. The operator-override sidecar is already
@@ -313,6 +349,8 @@ func main() {
 					logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new APK file")
 					if err := gameManager.ImportAPK(event.FilePath); err != nil {
 						logger.Error().Err(err).Str("event", "added").Str("file", event.FilePath).Msg("failed to import APK from watcher")
+					} else {
+						ensureArchiveOnImport(event.FilePath)
 					}
 				} else if ext == ".obb" {
 					logger.Info().Str("event", "added").Str("file", event.FilePath).Msg("detected new OBB file, waiting for paired APK")
@@ -333,6 +371,8 @@ func main() {
 						logger.Warn().Str("file", event.FilePath).Msg("cannot determine package name for modified file, skipping re-import")
 					} else if importErr := gameManager.ImportAPK(event.FilePath); importErr != nil {
 						logger.Error().Err(importErr).Str("package", meta.PackageName).Str("event", "modified").Msg("failed to update modified APK")
+					} else {
+						ensureArchiveOnImport(event.FilePath)
 					}
 				} else if ext == ".obb" {
 					logger.Info().Str("event", "modified").Str("file", event.FilePath).Msg("detected modified OBB file, size tracking will update on next scan")
