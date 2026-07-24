@@ -29,9 +29,16 @@ Quest can reach:
 ```json
 {
   "baseUri": "http://192.0.2.10:39457/",
-  "password": "your-cleartext-archive-password"
+  "password": "eW91ci1hcmNoaXZlLXBhc3N3b3Jk"
 }
 ```
+
+The `password` value must be the **Base64-encoded** archive password
+&mdash; exactly the shape returned by the server's own
+[`/config.json`](API.md#get-configjson) endpoint (see below). The
+client always Base64-decodes this field before using it, in both
+Option A and Option B, so pasting the raw cleartext password here
+will fail to decrypt the archive.
 
 In the VRHub client, pick **JSON URL** mode and paste the URL of
 that file. The client downloads it, validates the keys and shows

@@ -107,6 +107,7 @@ source of truth for the active mode at request time.
 | `internal/metadata`                    | MetaMetadata fetcher + cache                              |
 | `internal/monitor`                     | Real-time monitoring publisher (SSE feed)                  |
 | `internal/network`                     | Network reachability helper                                |
+| `internal/trailers`                    | Trailer resolution cascade (override sidecar, OculusDB, YouTube search fallback) |
 | `internal/update`                      | GitHub releases checker, self-apply, recovery             |
 | `internal/ui/embed/`                   | Embedded admin UI assets (`go:embed`)                      |
 | `pkg/types`                            | Shared types (`Config`, `ServerMode`, `GameEntry`)         |
@@ -140,6 +141,7 @@ source of truth for the active mode at request time.
 |-----------------------|------------------------------------|-------------------------------------|
 | File watcher          | fsnotify events on game folders   | re-scan + DB write                  |
 | Metadata fetcher      | startup + `[metadata].refresh_interval` | DB enrichment, conditional GET |
+| Trailer resolver      | startup + scheduled metadata refresh | `trailer_url` DB column for games missing one |
 | Update checker        | startup + `[update].check-interval` | `/admin/api/update/status`       |
 | Auto backup           | pre-update + manual schedule       | zip under `{data-dir}/backups/`     |
 | Monitor publisher     | every request to `/admin/monitoring` | SSE stream                      |
