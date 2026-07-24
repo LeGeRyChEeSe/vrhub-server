@@ -71,6 +71,7 @@ internal/
   metadata/            MetaMetadata fetcher + cache
   monitor/             real-time monitoring publisher
   network/             network status helper
+  trailers/            trailer resolution cascade (override, OculusDB, YouTube fallback)
   update/              GitHub releases checker
   ui/                  embedded admin UI assets
 pkg/types/             shared types (Config, ServerMode, GameEntry)

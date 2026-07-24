@@ -758,17 +758,35 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			if cfg != nil {
 				apiKeyRouter.Use(auth.APIKeyAuthMiddleware(cfg))
 			} else {
-				// B2 fallback: cfg is nil in setup mode. The API-key
-				// middleware requires a non-nil cfg (validates the hash).
-				// Substitute a 503-emitting handler so /admin/api/scripts/*
-				// is still registered (and discoverable) but every
-				// request gets a clear 503 NOT_CONFIGURED instead of
-				// being silently dropped (chi 404) or panicking. The
+				// B2 fallback: cfg is nil in setup mode (first run,
+				// before the wizard has written config.toml). chi
+				// middleware is wired once at router-construction time
+				// and can't be swapped out later, so we can't simply
+				// pick auth.APIKeyAuthMiddleware(cfg) here — cfg is a
+				// nil pointer, not a struct we could mutate in place.
+				//
+				// Fix (was: a permanent 503-emitting handler baked in
+				// forever regardless of what happens after this point):
+				// resolve the config PER REQUEST via
+				// adminHandler.resolveConfig(), the same disk-reload
+				// pattern already used by the settings/API-key admin
+				// endpoints. Once the wizard's HandleLaunchPOST writes
+				// config.toml with an API key hash (auth.EnsureAPIKey),
+				// this middleware picks it up on the very next request
+				// — no restart needed, matching every other part of the
+				// setup→normal transition. Before that point (or if the
+				// key genuinely isn't configured yet), it still 503s
+				// with the same NOT_CONFIGURED code as before. The
 				// _ping reachability probe is routed AROUND this
 				// middleware by the dispatcher below.
 				apiKeyRouter.Use(func(next http.Handler) http.Handler {
 					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						writeError(w, http.StatusServiceUnavailable, "API key authentication not yet configured (setup wizard in progress)", "NOT_CONFIGURED")
+						resolvedCfg, ok := adminHandler.resolveConfig()
+						if !ok || resolvedCfg.Admin.APIKeyHash == "" {
+							writeError(w, http.StatusServiceUnavailable, "API key authentication not yet configured (setup wizard in progress)", "NOT_CONFIGURED")
+							return
+						}
+						auth.APIKeyAuthMiddleware(resolvedCfg)(next).ServeHTTP(w, r)
 					})
 				})
 			}

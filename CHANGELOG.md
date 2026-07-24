@@ -7,24 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`gofmt`-clean `internal/db/db.go` (#2):** Formatting-only fix to satisfy the CI
+  `gofmt` check on the DB layer.
+- **Incorrect MB/GB divisors in `formatBytes` (#3):** The admin dashboard's byte-size
+  formatter used the wrong divisor between the MB and GB tiers, understating large sizes.
+- **`GetStatsForHash` "not found" handling (#4):** Switched to `errors.Is(err, sql.ErrNoRows)`
+  instead of a direct equality check, so wrapped errors are matched correctly.
+- **Monitor `Subscription.Events` channel leak (#5):** `Unsubscribe` now actually closes the
+  channel; previously it was a no-op, leaking a channel per SSE client disconnect.
+- **`serveFileDownload` status-line ordering (#6):** The file is now opened before the
+  response status line is committed, so a missing/unreadable file returns a proper error
+  status instead of a partially-written `200`.
+- **Scripts API CSRF false-positive (#7):** The session CSRF check no longer runs on
+  `/admin/api/scripts/*` routes, which authenticate via `X-API-Key` and never carry a
+  session cookie in the first place.
+- **Stale `.updating` removal retried on Windows:** The self-update applicator now retries
+  deleting a leftover `.updating` file before failing, working around Windows' delayed
+  file-handle release after a process exit.
+
 ## [0.1.5] - 2026-06-27
 
 ### Added
 
-- **Trailer resolution cascade (Story 11.1):** A new `[trailer]` config section (`language`,
-  optional `youtube_api_key`) drives a three-step resolver: operator override sidecar
-  (`{releaseName}.trailer` or `trailer.url`) → OculusDB best-effort → YouTube Data API /
-  search fallback. `ResolveMissing` batch-resolves all games with an empty `trailer_url`
-  at startup and on demand.
+- **Trailer resolution cascade (Story 11.1):** A new `[trailer]` config section (`language`)
+  drives a two-step resolver: operator override sidecar (`{releaseName}.trailer` or
+  `trailer.url`) → OculusDB best-effort. `ResolveMissing` batch-resolves all games with an
+  empty `trailer_url` at startup and on scheduled metadata refresh. An earlier YouTube Data
+  API key path was dropped before release in favour of the zero-config search-link fallback
+  below.
 - **Hybrid trailer delivery (Story 11.3):** Every named game now exposes a trailer link via
-  `meta.7z` and the directory listing. When a specific video URL is resolved it is served
+  `meta.7z` and `GET /{hash}/trailer.txt`. When a specific video URL is resolved it is served
   directly; otherwise a YouTube search link (`youtube.com/results?search_query=…`) is
-  generated from the configured language. The trailer language is folded into the `meta.7z`
-  ETag so a language change automatically invalidates client caches.
-- **Admin Trailers settings (Story 11.3):** Power-mode admin settings now include a Trailers
-  section: a trailer-language dropdown, a write-only YouTube Data API key field (value never
-  returned by the server), and a "Resolve trailers now" button (`POST /admin/api/trailers/resolve`)
-  that triggers on-demand resolution without a server restart.
+  generated from the configured language, with no API key required. The trailer language is
+  folded into the `meta.7z` ETag so a language change automatically invalidates client caches.
+- **Admin Trailers settings (Story 11.3):** Power-mode admin settings now include a
+  trailer-language dropdown, editable without a server restart.
 - **Multi-folder file watcher (Story 3.5):** `game_folders` now accepts multiple directories.
   The watcher visits every configured folder, skipping missing or inaccessible ones with a
   warning. A new `WatcherManager` serialises Start/Restart/Stop behind a mutex so a

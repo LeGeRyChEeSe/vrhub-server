@@ -764,40 +764,6 @@ func isBinaryFileForCurrentPlatform(name string) bool {
 	return hasOS
 }
 
-// removeWithRetry tries to delete path up to 3 times with short delays between
-// attempts. On Windows, antivirus scanners (including Windows Defender) can
-// hold a file open briefly after the process that wrote it exits, causing
-// os.Remove to fail with "Access is denied". Waiting a short time is usually
-// enough for the scanner to release the handle.
-//
-// If deletion keeps failing, the file is renamed to a temp name in the same
-// directory and scheduled for background deletion. This lets the caller
-// proceed with its own rename into that slot.
-func removeWithRetry(path string) error {
-	const maxRetries = 3
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		if lastErr = os.Remove(path); lastErr == nil {
-			return nil
-		}
-		if i < maxRetries-1 {
-			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
-		}
-	}
-	// Last resort: rename to a unique temp name in the same directory.
-	// A rename can succeed even when delete is denied (the file content stays
-	// on disk but the original name slot is freed, which is all we need).
-	tmpStale := path + fmt.Sprintf(".%d.stale", time.Now().UnixNano())
-	if mvErr := os.Rename(path, tmpStale); mvErr == nil {
-		go func() {
-			time.Sleep(10 * time.Second)
-			_ = os.Remove(tmpStale)
-		}()
-		return nil
-	}
-	return fmt.Errorf("remove after %d retries: %w", maxRetries, lastErr)
-}
-
 // replaceBinary replaces the current binary with the new one using the
 // platform-specific strategy. On Windows the prior binary is preserved as
 // `.updating` and the flag file is set so the next startup can recover if
@@ -819,34 +785,31 @@ func (a *Applicator) replaceBinary(newBinaryPath string) error {
 		// size; otherwise the .updating might be the recovery copy we
 		// need to restore (handled by CheckPendingUpdate at startup).
 		//
-		// On Windows, antivirus scanners can hold the .updating file open
-		// briefly after a previous run exited (e.g. Windows Defender scanning
-		// the just-written binary). removeWithRetry retries a few times with
-		// short delays; if that still fails it tries to rename the file out of
-		// the way so the main rename below can succeed.
+		// On Windows, antivirus scanners (including Windows Defender) can
+		// hold a file open briefly after the process that wrote it exits,
+		// causing a plain os.Remove to fail with "Access is denied" even
+		// though nothing is genuinely wrong. removeStaleUpdatingFile
+		// retries with a short backoff and falls back to relocating the
+		// file if it's still locked, so a transient lock doesn't abort
+		// the whole update.
 		if _, statErr := os.Stat(exePath); statErr == nil {
 			if _, statErr := os.Stat(updatingPath); statErr == nil {
-				if rmErr := removeWithRetry(updatingPath); rmErr != nil {
-					logger.Warn().Err(rmErr).Str("path", updatingPath).
-						Msg("Update apply: stale .updating could not be removed (antivirus may be holding it); proceeding with rename")
+				if rmErr := removeStaleUpdatingFile(updatingPath); rmErr != nil {
+					logger.Warn().Err(rmErr).Str("path", updatingPath).Msg("Update apply: failed to remove stale .updating before rename")
 				}
 			}
 		}
 
 		// Rename current to .updating. If the rename fails (most likely
-		// because a stale .updating still exists and is locked by AV),
-		// perform one more cleanup attempt with retry then try again.
+		// because a stale .updating still exists and is locked), retry
+		// the cleanup once more before giving up.
 		if err := os.Rename(exePath, updatingPath); err != nil {
-			if rmErr := removeWithRetry(updatingPath); rmErr == nil {
+			if rmErr := removeStaleUpdatingFile(updatingPath); rmErr == nil {
 				if retryErr := os.Rename(exePath, updatingPath); retryErr != nil {
 					return fmt.Errorf("failed to rename current binary after cleanup: %w (original: %v)", retryErr, err)
 				}
 			} else {
-				return fmt.Errorf(
-					"failed to rename current binary: %w — a stale %s file exists and is locked "+
-						"(antivirus is likely scanning it); delete it manually and retry the update",
-					err, updatingPath,
-				)
+				return fmt.Errorf("failed to rename current binary: %w — a stale %s file exists and is locked (antivirus is likely scanning it); delete it manually and retry the update", err, updatingPath)
 			}
 		}
 
@@ -1055,10 +1018,61 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 		} else if statErr == nil {
 			// Happy path: cleanup the leftover .updating now that the new
 			// binary is in place and running.
-			if err := os.Remove(updatingPath); err != nil && !os.IsNotExist(err) {
-				logger.Warn().Err(err).Str("path", updatingPath).Msg("Update apply: failed to remove .updating")
+			//
+			// On Windows the file just vacated by the old process's exe
+			// (renamed to .updating during replaceBinary) can still be
+			// held by the OS for a short window after the old process
+			// exits — Windows doesn't release the image-section lock on
+			// a running executable's backing file instantaneously, so an
+			// immediate os.Remove reliably fails with "Access is denied"
+			// even though the old process is already gone. Retry with a
+			// short backoff instead of giving up after one attempt; this
+			// is the standard workaround for self-replacing binaries on
+			// Windows. Without it, every update left a stale multi-MB
+			// .updating binary behind permanently (verified in manual
+			// testing: the file was still present, unchanged, minutes
+			// after the new process had fully started and stabilized).
+			if err := removeWithRetry(updatingPath, 10, 300*time.Millisecond); err != nil && !os.IsNotExist(err) {
+				// The quick 3s delete-retry budget wasn't enough. Verified
+				// in manual testing that an antivirus scan of the
+				// just-written executable can hold an exclusive-enough
+				// lock for MULTIPLE MINUTES in some environments — far
+				// too long to keep retrying a plain delete before
+				// startup can proceed. A rename typically succeeds much
+				// sooner than a delete under this kind of lock (it only
+				// needs to update the directory entry, not tear down the
+				// file), so try that first — renameAsideAndDefer frees
+				// the .updating name immediately in the common case and
+				// deletes the relocated copy 10s later in the background.
+				if relocErr := renameAsideAndDefer(updatingPath); relocErr != nil {
+					// Rename also failed (a genuinely exclusive lock).
+					// Keep retrying in the background with a long budget
+					// instead of blocking startup or giving up — this is
+					// purely cosmetic cleanup at this point (the running
+					// binary is already correct either way), and the
+					// next boot's CheckPendingUpdate would retry anyway
+					// if the process were killed before this finishes.
+					go func() {
+						for i := 0; i < 60; i++ {
+							time.Sleep(5 * time.Second)
+							if relocErr := renameAsideAndDefer(updatingPath); relocErr == nil {
+								return
+							}
+						}
+						logger.Warn().Str("path", updatingPath).Msg("Update apply: failed to remove .updating after extended retries")
+					}()
+				}
 			}
 		}
+
+		// Sweep any orphaned "<exe>.<nanos>.stale" files left behind by
+		// renameAsideAndDefer's 10s-delayed background removal, in case
+		// the process exited (crash, manual restart, service stop)
+		// before that goroutine fired. These accumulate one per failed
+		// update on a host where the antivirus lock outlasts the process
+		// lifetime — the exact scenario this whole cleanup path exists
+		// for — so a boot-time sweep is needed to actually bound them.
+		sweepStaleFiles(exePath)
 
 		// Read and parse the flag file.
 		flagPath := filepath.Join(dataDir, updatePendingFlag)
@@ -1090,6 +1104,76 @@ func CheckPendingUpdate(dataDir, exePath string) error {
 	}
 
 	return nil
+}
+
+// removeWithRetry calls os.Remove, retrying up to attempts times with a
+// fixed delay between tries. Used for the Windows .updating cleanup where
+// the file can remain briefly locked by the OS or an antivirus scanner
+// shortly after the process that owned it as its executable image has
+// exited. Returns the last error (or nil) if the file is gone by the time
+// attempts are exhausted.
+func removeWithRetry(path string, attempts int, delay time.Duration) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = os.Remove(path); err == nil || os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(delay)
+	}
+	return err
+}
+
+// removeStaleUpdatingFile deletes a leftover .updating file before a new
+// update's rename step needs that path slot (replaceBinary's pre-rename
+// cleanup, and a mid-rename retry when a race left .updating in place).
+// It retries a few times via removeWithRetry, then — if the file is still
+// locked — falls back to renaming it out of the way. A rename can succeed
+// even when a delete is denied (e.g. antivirus holding a read handle open
+// for scanning), and freeing the name slot is all the caller needs; the
+// renamed-aside file is cleaned up in the background on a best-effort
+// basis a few seconds later, once the lock has almost certainly cleared.
+func removeStaleUpdatingFile(path string) error {
+	if err := removeWithRetry(path, 3, 500*time.Millisecond); err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	return renameAsideAndDefer(path)
+}
+
+// renameAsideAndDefer renames a locked file to a unique ".<nanos>.stale"
+// name in the same directory — freeing the original path even when a
+// direct delete is denied — then removes the renamed file in the
+// background a few seconds later, once the lock has almost certainly
+// cleared. Best-effort: the deferred removal's own failure is silently
+// ignored, since by that point the file is already out of everyone's way.
+func renameAsideAndDefer(path string) error {
+	tmpStale := fmt.Sprintf("%s.%d.stale", path, time.Now().UnixNano())
+	if mvErr := os.Rename(path, tmpStale); mvErr != nil {
+		if os.IsNotExist(mvErr) {
+			return nil
+		}
+		return fmt.Errorf("file is locked and could not be removed or relocated: %s", path)
+	}
+	go func() {
+		time.Sleep(10 * time.Second)
+		_ = os.Remove(tmpStale)
+	}()
+	return nil
+}
+
+// sweepStaleFiles removes any "<exePath>.<nanos>.stale" files left behind
+// by a previous renameAsideAndDefer call whose 10s background removal
+// never got to run (process exited early). Best-effort: a file that's
+// still locked is simply left for the next boot to retry. Called once at
+// startup so these don't accumulate indefinitely on a host where updates
+// repeatedly hit a long-lived antivirus lock.
+func sweepStaleFiles(exePath string) {
+	matches, err := filepath.Glob(exePath + ".*.stale")
+	if err != nil {
+		return
+	}
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
 }
 
 // performBackup creates a backup of config.toml and vrhub.db before applying

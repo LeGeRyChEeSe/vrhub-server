@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/auth"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/config"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/game"
@@ -35,6 +36,22 @@ const (
 	defaultHost = "0.0.0.0"
 	defaultPort = 39457
 )
+
+// resolvedListenPort holds the port the server is actually listening on,
+// as resolved by main.go (-port flag > config > default) BEFORE the
+// router is constructed. The setup wizard's HandleCredentialsPOST uses
+// this instead of the hardcoded defaultPort when writing the first-run
+// config.toml, so a server launched with `-port 39999` persists 39999
+// instead of silently reverting to 39457 on the next restart.
+var resolvedListenPort atomic.Int32
+
+// SetResolvedListenPort records the actual listen port for the setup
+// wizard to persist into config.toml. Call before SetupRouter/
+// NewSetupHandler in production; safe to leave unset in tests (falls
+// back to defaultPort).
+func SetResolvedListenPort(port int) {
+	resolvedListenPort.Store(int32(port))
+}
 
 // getOutboundIP returns the IP address this machine uses to reach the
 // public internet. Implemented by opening a UDP socket to a public
@@ -180,10 +197,14 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	} else if os.IsNotExist(statErr) {
+		port := defaultPort
+		if p := resolvedListenPort.Load(); p > 0 {
+			port = int(p)
+		}
 		cfg = &types.Config{
 			Server: types.ServerConfig{
 				Host: defaultHost,
-				Port: defaultPort,
+				Port: port,
 				Mode: types.ModeNormal,
 			},
 			Database: types.DatabaseConfig{
@@ -826,6 +847,21 @@ func (h *SetupHandler) HandleLaunchPOST(w http.ResponseWriter, r *http.Request) 
 	if reloadErr != nil || propagatedCfg == nil {
 		vlog.Get().Warn().Err(reloadErr).Msg("launch: post-save config reload failed, propagating in-memory cfg")
 		propagatedCfg = cfg
+	}
+
+	// First-run API key generation for the live setup→normal transition.
+	// main.go only generates the API key on a normal boot (cfg loaded
+	// from disk with a mode already set); a first-run server that
+	// reaches normal mode via this handler instead — the documented "no
+	// restart needed" path — would otherwise have no API key at all
+	// until the operator manually restarts the process, leaving every
+	// /admin/api/scripts/* request 503ing despite the server being
+	// fully operational.
+	if plaintext, generated, keyErr := auth.EnsureAPIKey(h.DataDir, propagatedCfg); keyErr != nil {
+		vlog.Get().Error().Err(keyErr).Msg("launch: failed to generate API key; API key auth will return 503 until a restart or manual regenerate")
+	} else if generated {
+		auth.PrintAPIKeyBanner(plaintext)
+		vlog.Get().Info().Str("event", "api_key_first_run_generated").Str("key_hint", plaintext[:4]+"..."+plaintext[len(plaintext)-4:]).Msg("first-run API key generated (live setup transition); plaintext logged ONCE to stderr")
 	}
 
 	// Propagate the freshly-loaded cfg to PublicAPIHandler.Config,
