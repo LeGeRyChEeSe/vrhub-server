@@ -15,6 +15,9 @@
 *.so
 *.dylib
 
+# Self-update stale binary leftovers
+*.updating
+
 # Exception: the embedded 7zz CLI binaries MUST be committed so they ship in
 # the repo/CI/release builds (//go:embed reads them at build time). Without
 # these, Windows builds have no embedded 7zz and meta.7z generation fails.
