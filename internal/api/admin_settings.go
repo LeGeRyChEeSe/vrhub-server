@@ -22,6 +22,10 @@ import (
 // tests provide a stub.
 //
 // Story 6-3 Task 4.3.
+//
+// H2: RebindWithTLS is also available for TLS-aware rebinding.
+// Production implements it; test stubs only need Rebind (TLS
+// changes are persisted to disk but won't take effect until restart).
 type Reloader interface {
 	Rebind(addr string) error
 }
@@ -40,8 +44,10 @@ type UpdateConfigPusher func(*types.UpdateConfig)
 // Story 6-3 AC1.
 type settingsUpdateRequest struct {
 	Server struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
+		Host       string `json:"host"`
+		Port       int    `json:"port"`
+		TLSCertFile string `json:"tls_cert_file,omitempty"`
+		TLSCertKey  string `json:"tls_key_file,omitempty"`
 	} `json:"server"`
 	// Update block: auto_apply, auto_restart, check_interval, github_token, owner, repo.
 	// The enabled field is intentionally absent — update checking is always on.
@@ -374,6 +380,22 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 		newCfg.GameFolders = req.GameFolders
 	}
 
+	// H2: TLS cert/key file paths. Both must be set (or both empty)
+	// for TLS to be enabled. An empty value preserves the current
+	// config; a non-empty value must be a valid path.
+	tlsCertChanged := req.Server.TLSCertFile != ""
+	tlsKeyChanged := req.Server.TLSCertKey != ""
+	if tlsCertChanged && tlsKeyChanged {
+		// Both set — validate they look like file paths (non-empty).
+		newCfg.Server.TLSCertFile = req.Server.TLSCertFile
+		newCfg.Server.TLSCertKey = req.Server.TLSCertKey
+	} else if tlsCertChanged || tlsKeyChanged {
+		// Only one set — reject to avoid half-configured TLS.
+		writeError(w, http.StatusBadRequest, "tls_cert_file and tls_key_file must both be set or both empty", "INVALID_INPUT")
+		return
+	}
+	// If neither is set, the current values are preserved (no-op).
+
 	// R13-P1: Persist to disk atomically AND atomically swap the
 	// in-memory pointer under the write lock. The previous code
 	// released the resolveConfig RLock between the disk read and the
@@ -392,16 +414,34 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 	// R13-P10: include rebind_status in the response so the UI sees a
 	// failed rebind (instead of "success" while the listener is on the
 	// old address).
+	// H2: also pass TLS cert/key to the rebinder so it can switch
+	// between HTTPS and HTTP listeners on settings change.
 	hostChanged := newCfg.Server.Host != cfg.Server.Host
 	portChanged := newCfg.Server.Port != cfg.Server.Port
+	tlsFilesChanged := newCfg.Server.TLSCertFile != cfg.Server.TLSCertFile || newCfg.Server.TLSCertKey != cfg.Server.TLSCertKey
 	rebindStatus := "skipped"
-	if (hostChanged || portChanged) && h.Reloader != nil {
+	if (hostChanged || portChanged || tlsFilesChanged) && h.Reloader != nil {
 		newAddr := net.JoinHostPort(newCfg.Server.Host, strconv.Itoa(newCfg.Server.Port))
-		if err := h.Reloader.Rebind(newAddr); err != nil {
-			vlog.Get().Error().Err(err).Str("new_addr", newAddr).Msg("settings: live rebind failed; old listener still active")
-			rebindStatus = "failed"
+		// Try the TLS-aware rebinder if it exists (type assertion).
+		if reloader, ok := h.Reloader.(interface {
+			RebindWithTLS(addr, certFile, keyFile string) error
+		}); ok {
+			if err := reloader.RebindWithTLS(newAddr, newCfg.Server.TLSCertFile, newCfg.Server.TLSCertKey); err != nil {
+				vlog.Get().Error().Err(err).Str("new_addr", newAddr).Msg("settings: live rebind failed; old listener still active")
+				rebindStatus = "failed"
+			} else {
+				rebindStatus = "ok"
+			}
 		} else {
-			rebindStatus = "ok"
+			// Fallback: plain Rebind (test stubs that don't implement
+			// RebindWithTLS). TLS file changes are persisted to disk
+			// but won't take effect until a full server restart.
+			if err := h.Reloader.Rebind(newAddr); err != nil {
+				vlog.Get().Error().Err(err).Str("new_addr", newAddr).Msg("settings: live rebind failed; old listener still active")
+				rebindStatus = "failed"
+			} else {
+				rebindStatus = "ok"
+			}
 		}
 	}
 
@@ -436,8 +476,10 @@ func (h *AdminHandler) HandleSettingsPUT(w http.ResponseWriter, r *http.Request)
 	resp := settingsUpdateResponse{
 		Data: map[string]interface{}{
 			"server": map[string]interface{}{
-				"host": newCfg.Server.Host,
-				"port": newCfg.Server.Port,
+				"host":          newCfg.Server.Host,
+				"port":          newCfg.Server.Port,
+				"tls_cert_file": newCfg.Server.TLSCertFile,
+				"tls_key_file":  newCfg.Server.TLSCertKey,
 			},
 			"update": map[string]interface{}{
 				"auto_apply":   newCfg.Update.AutoApply,

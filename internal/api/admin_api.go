@@ -29,8 +29,10 @@ func SanitizeConfig(cfg *types.Config) map[string]interface{} {
 	}
 	return map[string]interface{}{
 		"server": map[string]interface{}{
-			"host": cfg.Server.Host,
-			"port": cfg.Server.Port,
+			"host":          cfg.Server.Host,
+			"port":          cfg.Server.Port,
+			"tls_cert_file": cfg.Server.TLSCertFile,
+			"tls_key_file":  cfg.Server.TLSCertKey,
 		},
 		"update": map[string]interface{}{
 			"enabled":        cfg.Update.Enabled,
