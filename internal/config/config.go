@@ -11,6 +11,23 @@ import (
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 )
 
+// validateTLSFiles checks that both TLS cert and key files exist.
+// Returns a non-nil error only when both are set but at least one is missing.
+// When only one field is set, it returns nil (operator misconfiguration —
+// the caller should warn but not fatal).
+func validateTLSFiles(certFile, keyFile string) error {
+	if certFile == "" || keyFile == "" {
+		return nil // TLS not fully configured — caller decides how to handle
+	}
+	if _, err := os.Stat(certFile); os.IsNotExist(err) {
+		return fmt.Errorf("tls_cert file does not exist: %s", certFile)
+	}
+	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
+		return fmt.Errorf("tls_key file does not exist: %s", keyFile)
+	}
+	return nil
+}
+
 const (
 	defaultUnixDataDir    = "$HOME/.vrhub-server"
 	defaultWindowsDataDir = "%APPDATA%/vrhub-server"
@@ -73,6 +90,15 @@ func Load(dataDir string) (*types.Config, error) {
 	// game archives without extra setup.
 	if !archive.ValidateSplitSize(cfg.Archive.SplitSize) {
 		cfg.Archive.SplitSize = archive.DefaultSplitSize
+	}
+
+	// Validate TLS cert/key files when both are configured.
+	// A warning is logged by the caller (main.go) — this is not a
+	// fatal error because the operator may add the files later.
+	if tlsErr := validateTLSFiles(cfg.Server.TLSCertFile, cfg.Server.TLSCertKey); tlsErr != nil {
+		// Return the error so the caller can log a warning at Warn level
+		// (not Fatal — the operator might add the files later).
+		return cfg, fmt.Errorf("tls config validation: %w", tlsErr)
 	}
 
 	return cfg, nil
