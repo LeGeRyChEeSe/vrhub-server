@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
+	"github.com/LeGeRyChEeSe/vrhub-server/internal/auth"
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 	chi "github.com/go-chi/chi/v5"
@@ -251,12 +253,25 @@ func TestHandleGamesListGET_GameFields(t *testing.T) {
 	}
 }
 
-func newDeleteRouter(t *testing.T, d *db.DB) *chi.Mux {
+// newDeleteRouter creates a chi router with the game-delete route for
+// testing. DELETE is a state-changing operation protected by CSRF, so
+// the router installs a session-injecting middleware; callers must set
+// X-CSRF-Token to auth.CSRFTokenForSession(returnedSession.ID).
+func newDeleteRouter(t *testing.T, d *db.DB) (*chi.Mux, *auth.Session) {
 	t.Helper()
 	r := chi.NewRouter()
-	adminHandler := NewAdminHandler(t.TempDir(), nil, d, nil, nil)
+	store := auth.NewSessionStore(context.Background())
+	t.Cleanup(store.Stop)
+	adminHandler := NewAdminHandler(t.TempDir(), nil, d, store, nil)
+	session := adminHandler.SessionStore.Create("test-admin")
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.InjectSessionForTest(req.Context(), session)
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	r.Delete("/api/games/{releaseName}", adminHandler.HandleGameDeleteDELETE)
-	return r
+	return r, session
 }
 
 func TestHandleGameDeleteDELETE_Success(t *testing.T) {
@@ -273,9 +288,10 @@ func TestHandleGameDeleteDELETE_Success(t *testing.T) {
 	}
 	insertTestGame(t, d, game)
 
-	router := newDeleteRouter(t, d)
+	router, session := newDeleteRouter(t, d)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/games/com.example.game", nil)
+	req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -311,9 +327,10 @@ func TestHandleGameDeleteDELETE_GameNotFound(t *testing.T) {
 	d, cleanup := setupAdminTestDB(t)
 	defer cleanup()
 
-	router := newDeleteRouter(t, d)
+	router, session := newDeleteRouter(t, d)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/games/com.nonexistent.game", nil)
+	req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -340,9 +357,10 @@ func TestHandleGameDeleteDELETE_MissingPackageName(t *testing.T) {
 	d, cleanup := setupAdminTestDB(t)
 	defer cleanup()
 
-	router := newDeleteRouter(t, d)
+	router, session := newDeleteRouter(t, d)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/games/", nil)
+	req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -352,6 +370,39 @@ func TestHandleGameDeleteDELETE_MissingPackageName(t *testing.T) {
 }
 
 func TestHandleGameDeleteDELETE_ResponseContentType(t *testing.T) {
+	d, cleanup := setupAdminTestDB(t)
+	defer cleanup()
+
+	router, session := newDeleteRouter(t, d)
+
+	game := types.GameEntry{
+		ReleaseName: "com.example.game",
+		GameName:    "Example Game",
+		PackageName: "com.example.game",
+		VersionCode: 42,
+		SizeBytes:   1024,
+		Hash:        "testhash",
+	}
+	insertTestGame(t, d, game)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/games/com.example.game", nil)
+	req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if got := w.Code; got != http.StatusOK {
+		t.Errorf("status = %d, want %d\nbody: %s", got, http.StatusOK, w.Body.String())
+	}
+
+	if got := w.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", got, "application/json")
+	}
+}
+
+// TestHandleGameDeleteDELETE_CSRFRejected verifies that a DELETE
+// request without a valid CSRF token is rejected with 403. This is the
+// regression gate for M1: incomplete CSRF coverage.
+func TestHandleGameDeleteDELETE_CSRFRejected(t *testing.T) {
 	d, cleanup := setupAdminTestDB(t)
 	defer cleanup()
 
@@ -365,18 +416,45 @@ func TestHandleGameDeleteDELETE_ResponseContentType(t *testing.T) {
 	}
 	insertTestGame(t, d, game)
 
-	router := newDeleteRouter(t, d)
+	router, session := newDeleteRouter(t, d)
 
+	// Intentionally send a WRONG CSRF token.
 	req := httptest.NewRequest(http.MethodDelete, "/api/games/com.example.game", nil)
+	req.Header.Set("X-CSRF-Token", "invalid-token")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if got := w.Code; got != http.StatusOK {
-		t.Errorf("status = %d, want %d\nbody: %s", got, http.StatusOK, w.Body.String())
+	if got := w.Code; got != http.StatusForbidden {
+		t.Errorf("status = %d, want %d\nbody: %s", got, http.StatusForbidden, w.Body.String())
 	}
 
-	if got := w.Header().Get("Content-Type"); got != "application/json" {
-		t.Errorf("Content-Type = %q, want %q", got, "application/json")
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	errObj, ok := resp["error"].(map[string]interface{})
+	if !ok {
+		t.Fatal("response missing error field")
+	}
+
+	if got, _ := errObj["code"].(string); got != "CSRF_INVALID" {
+		t.Errorf("error code = %q, want %q", got, "CSRF_INVALID")
+	}
+
+	// Game should NOT be deleted (CSRF rejection = fail closed).
+	_, err := d.GetGameByPackage("com.example.game")
+	if err != nil {
+		t.Error("game should still exist in database after CSRF rejection")
+	}
+
+	// Now verify that a VALID CSRF token works.
+	req.Header.Set("X-CSRF-Token", auth.CSRFTokenForSession(session.ID))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if got := w.Code; got != http.StatusOK {
+		t.Errorf("with valid CSRF: status = %d, want %d\nbody: %s", got, http.StatusOK, w.Body.String())
 	}
 }
 

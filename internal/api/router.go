@@ -721,14 +721,16 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			// can refresh its .UpdateConfig (owner/repo/token/etc.).
 			updateRef = updateHandler
 			protectedRouter.Get("/api/update/status", updateHandler.HandleUpdateStatusGET)
-			protectedRouter.Post("/api/update/apply", updateHandler.HandleUpdateApplyPOST)
-			protectedRouter.Post("/api/update/reset", updateHandler.HandleUpdateResetPOST)
-			protectedRouter.Post("/api/update/restart", updateHandler.HandleUpdateRestartPOST)
 			protectedRouter.Get("/api/update/changelog", updateHandler.HandleChangelogGET)
 
-			// R6-CSRF-LOGOUT resolution (Story 6-3): wrap the update
-			// endpoints with the CSRF middleware too. (logout endpoint
-			// gets its own middleware in HandleAuthLogoutPOST.)
+			// R6-CSRF-LOGOUT resolution (Story 6-3): wrap the
+			// state-changing update endpoints with the CSRF
+			// middleware. Read-only GET endpoints (status,
+			// changelog) are not CSRF-protected.
+			csrfUpdate := protectedRouter.With(auth.CSRFMiddleware)
+			csrfUpdate.Post("/api/update/apply", updateHandler.HandleUpdateApplyPOST)
+			csrfUpdate.Post("/api/update/reset", updateHandler.HandleUpdateResetPOST)
+			csrfUpdate.Post("/api/update/restart", updateHandler.HandleUpdateRestartPOST)
 
 			// Story 6-3 Task 1.3: settings + API key endpoints.
 			protectedRouter.Get("/api/admin/settings", adminHandler.HandleSettingsGET)
