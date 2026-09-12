@@ -112,7 +112,10 @@ func WriteConfig(cfg *types.Config, dataDir string) error {
 		dataDir = cfg.DataDir
 	}
 
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	// M4 (2026-09-12): dataDir contains secrets (config.toml with archive
+	// password, API key hash, CSRF secret). Restrict to owner-only (0700)
+	// so other users on the same machine cannot read or modify them.
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return fmt.Errorf("config.WriteConfig: mkdir: %w", err)
 	}
 
