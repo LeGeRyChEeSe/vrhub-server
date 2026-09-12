@@ -136,6 +136,8 @@ func (h *UpdateHandler) HandleUpdateStatusGET(w http.ResponseWriter, r *http.Req
 // `currentState := UpdateState(h.state.Load())`) so that any race
 // between the CAS and the body serialization is resolved by the
 // authoritative source. Regression test: TestHandleUpdate_B1Contract.
+//
+// CSRF: wrapped with auth.CSRFMiddleware in router.go (csrfUpdate).
 func (h *UpdateHandler) HandleUpdateApplyPOST(w http.ResponseWriter, r *http.Request) {
 	// Atomically transition from Idle to Running.
 	if !h.state.CompareAndSwap(int32(UpdateStateIdle), int32(UpdateStateRunning)) {

@@ -261,6 +261,11 @@ func (h *AdminHandler) HandleCorruptionStatusGET(w http.ResponseWriter, r *http.
 
 // HandleRevalidatePOST handles POST /admin/api/games/:releaseName/revalidate.
 func (h *AdminHandler) HandleRevalidatePOST(w http.ResponseWriter, r *http.Request) {
+	// CSRF check — state-changing operation from session-authenticated SPA.
+	if !h.validateCSRF(r) {
+		writeError(w, http.StatusForbidden, "CSRF token invalid or missing", "CSRF_INVALID")
+		return
+	}
 	// Story 9.2 (B2): nil-DB guard (see requireDB).
 	if !h.requireDB(w) {
 		return
@@ -753,6 +758,11 @@ func (h *AdminHandler) HandleGamesListGET(w http.ResponseWriter, r *http.Request
 
 // HandleGameDeleteDELETE handles DELETE /admin/api/games/:releaseName.
 func (h *AdminHandler) HandleGameDeleteDELETE(w http.ResponseWriter, r *http.Request) {
+	// CSRF check — state-changing operation from session-authenticated SPA.
+	if !h.validateCSRF(r) {
+		writeError(w, http.StatusForbidden, "CSRF token invalid or missing", "CSRF_INVALID")
+		return
+	}
 	// Story 9.2 (B2): nil-DB guard (see requireDB).
 	if !h.requireDB(w) {
 		return
