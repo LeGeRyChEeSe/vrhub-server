@@ -441,6 +441,34 @@ func main() {
 		}()
 	}
 
+	// CSRF secret: load from config, generate on first-run.
+	// H1 (2026-09-12): the CSRF HMAC key must be a random 32-byte value
+	// persisted in config.toml. On normal-mode boot we load it; if empty
+	// (e.g. a config created before the 9.12 CSRF fix), we generate one,
+	// persist it, and reload.
+	if cfg != nil {
+		if loadErr := auth.LoadCSRFSecret(cfg.CSRF.Secret); loadErr != nil {
+			if cfg.CSRF.Secret == "" {
+				// First-run or pre-fix config: generate, persist, reload.
+				secret, genErr := auth.GenerateCSRFSecret()
+				if genErr != nil {
+					vlog.Get().Fatal().Err(genErr).Msg("failed to generate CSRF secret")
+				}
+				cfg.CSRF.Secret = secret
+				if persistErr := config.Save(cfg, dataDir); persistErr != nil {
+					vlog.Get().Fatal().Err(persistErr).Msg("failed to persist CSRF secret to config.toml")
+				}
+				vlog.Get().Info().Msg("CSRF secret generated and persisted to config.toml")
+				if loadErr = auth.LoadCSRFSecret(secret); loadErr != nil {
+					vlog.Get().Fatal().Err(loadErr).Msg("failed to load freshly-persisted CSRF secret")
+				}
+			} else {
+				// Secret exists but is invalid (wrong length, bad hex, placeholder).
+				vlog.Get().Fatal().Err(loadErr).Str("secret_hint", cfg.CSRF.Secret[:4]+"...").Msg("invalid CSRF secret in config.toml — check [csrf].secret")
+			}
+		}
+	}
+
 	// Story 6.4 Task 3: first-run API key generation. If
 	// cfg.Admin.APIKeyHash is empty, generate a fresh key, persist the
 	// hash to disk, and log the plaintext ONCE so the operator can
