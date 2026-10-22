@@ -44,8 +44,8 @@ type UpdateConfigPusher func(*types.UpdateConfig)
 // Story 6-3 AC1.
 type settingsUpdateRequest struct {
 	Server struct {
-		Host       string `json:"host"`
-		Port       int    `json:"port"`
+		Host        string `json:"host"`
+		Port        int    `json:"port"`
 		TLSCertFile string `json:"tls_cert_file,omitempty"`
 		TLSCertKey  string `json:"tls_key_file,omitempty"`
 	} `json:"server"`

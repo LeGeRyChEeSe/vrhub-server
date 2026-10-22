@@ -19,9 +19,9 @@ import (
 
 // stubReloader records Rebind calls for assertions.
 type stubReloader struct {
-	calls       []string
-	tlsCalls    []struct{ addr, cert, key string }
-	errors      []error
+	calls    []string
+	tlsCalls []struct{ addr, cert, key string }
+	errors   []error
 }
 
 func (s *stubReloader) Rebind(addr string) error {
