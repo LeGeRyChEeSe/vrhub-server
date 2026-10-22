@@ -201,6 +201,13 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 		if p := resolvedListenPort.Load(); p > 0 {
 			port = int(p)
 		}
+		// H1 (2026-09-12): generate a random CSRF secret on first run
+		// so the server boots with a strong HMAC key, not a placeholder.
+		csrfSecret, csrfErr := auth.GenerateCSRFSecret()
+		if csrfErr != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to generate CSRF secret", "CSRF_GENERATION_ERROR")
+			return
+		}
 		cfg = &types.Config{
 			Server: types.ServerConfig{
 				Host: defaultHost,
@@ -211,6 +218,9 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 				Path: filepath.Join(h.DataDir, "vrhub.db"),
 			},
 			DataDir: h.DataDir,
+			CSRF: types.CSRFConfig{
+				Secret: csrfSecret,
+			},
 		}
 	} else {
 		writeError(w, http.StatusInternalServerError, "Failed to access configuration", "CONFIG_ERROR")
