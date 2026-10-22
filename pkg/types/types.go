@@ -92,6 +92,13 @@ type ServerConfig struct {
 	Host string `toml:"host"`
 	Port int    `toml:"port"`
 	Mode ServerMode
+	// TLSCertFile is the path to the TLS certificate file (PEM).
+	// When non-empty and TLSCertKey is also set, the server serves
+	// HTTPS via http.Server.ListenAndServeTLS. Empty = plaintext HTTP.
+	TLSCertFile string `toml:"tls_cert"`
+	// TLSCertKey is the path to the TLS private key file (PEM).
+	// Must be set together with TLSCertFile for TLS to be enabled.
+	TLSCertKey string `toml:"tls_key"`
 }
 
 // DatabaseConfig holds database settings.
