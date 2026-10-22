@@ -36,11 +36,11 @@ const (
 	defaultHost = "0.0.0.0"
 	defaultPort = 39457
 	// maxSetupBodySize caps the size of JSON request bodies on setup
-	// wizard endpoints. 4 KiB is comfortably above the size of every
-	// setup payload (credentials, archive password, scan folder,
-	// review excluded packages) while still bounding the per-request
-	// memory cost to defeat trivial DoS via huge bodies.
-	maxSetupBodySize = 4096
+	// wizard endpoints. 16 KiB accommodates the largest legitimate
+	// payload (the review endpoint with up to 500 excluded packages,
+	// ~11 KiB) while still bounding the per-request memory cost to
+	// defeat trivial DoS via huge bodies.
+	maxSetupBodySize = 16384
 )
 
 // resolvedListenPort holds the port the server is actually listening on,
