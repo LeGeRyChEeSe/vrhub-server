@@ -9,11 +9,38 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/LeGeRyChEeSe/vrhub-server/internal/db"
 	"github.com/LeGeRyChEeSe/vrhub-server/pkg/types"
 	chi "github.com/go-chi/chi/v5"
 )
+
+// newRegressionTempDir creates a temp dir whose cleanup tolerates the
+// async fire-and-forget download-stats goroutine (serveFileDownload):
+// a late goroutine can flush SQLite WAL sidecar files into dataDir
+// while teardown is running, so t.TempDir's single-shot RemoveAll
+// races with it and fails with "directory not empty". Same pattern as
+// the e2e_apk_path_test env cleanup.
+func newRegressionTempDir(t *testing.T) string {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "vrhub-regression-*")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	// Registered before the DB cleanup (t.Cleanup runs LIFO), so the
+	// DB is closed first and any late stats goroutine writes nothing.
+	t.Cleanup(func() {
+		for i := 0; i < 100; i++ {
+			if rmErr := os.RemoveAll(tmpDir); rmErr == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = os.RemoveAll(tmpDir)
+	})
+	return tmpDir
+}
 
 // TestRegression_LegacyGame_AllThreeServable simulates the
 // pre-9.10 production state: the 3 games that have been
@@ -28,7 +55,7 @@ import (
 //
 // Story 9.10 / AC2 + AC3.
 func TestRegression_LegacyGame_AllThreeServable(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := newRegressionTempDir(t)
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -107,7 +134,7 @@ func TestRegression_LegacyGame_AllThreeServable(t *testing.T) {
 //
 // Story 9.10 / AC3.
 func TestRegression_LegacyGame_FileListingIsHTML(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := newRegressionTempDir(t)
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -165,7 +192,7 @@ func TestRegression_LegacyGame_FileListingIsHTML(t *testing.T) {
 //
 // Story 9.10 / regression: AC2 must preserve Range support.
 func TestRegression_LegacyGame_RangeRequestWorks(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := newRegressionTempDir(t)
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -223,7 +250,7 @@ func TestRegression_LegacyGame_RangeRequestWorks(t *testing.T) {
 // Story 9.10 / regression: the legacy fallback and the
 // new apk_path code path must coexist in the same server.
 func TestRegression_MixedLegacyAndNewGames(t *testing.T) {
-	tmpDir := t.TempDir()
+	tmpDir := newRegressionTempDir(t)
 	dataDir := filepath.Join(tmpDir, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
