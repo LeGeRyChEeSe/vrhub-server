@@ -19,12 +19,24 @@ import (
 
 // stubReloader records Rebind calls for assertions.
 type stubReloader struct {
-	calls  []string
-	errors []error
+	calls    []string
+	tlsCalls []struct{ addr, cert, key string }
+	errors   []error
 }
 
 func (s *stubReloader) Rebind(addr string) error {
 	s.calls = append(s.calls, addr)
+	if len(s.errors) > 0 {
+		err := s.errors[0]
+		s.errors = s.errors[1:]
+		return err
+	}
+	return nil
+}
+
+// RebindWithTLS records TLS-aware rebind calls for assertions.
+func (s *stubReloader) RebindWithTLS(addr, certFile, keyFile string) error {
+	s.tlsCalls = append(s.tlsCalls, struct{ addr, cert, key string }{addr, certFile, keyFile})
 	if len(s.errors) > 0 {
 		err := s.errors[0]
 		s.errors = s.errors[1:]
@@ -99,10 +111,13 @@ func TestHandleSettingsPUT_Valid(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
 	}
-	if len(reloader.calls) != 1 {
-		t.Errorf("Reloader.Rebind called %d times, want 1", len(reloader.calls))
-	} else if reloader.calls[0] != "0.0.0.0:9090" {
-		t.Errorf("Reloader.Rebind(%q), want %q", reloader.calls[0], "0.0.0.0:9090")
+	// The handler uses type assertion to call RebindWithTLS when the
+	// reloader supports it (TLS-aware rebinding). The stub implements
+	// both Rebind and RebindWithTLS, so TLS-aware path is taken.
+	if len(reloader.tlsCalls) != 1 {
+		t.Errorf("Reloader.RebindWithTLS called %d times, want 1", len(reloader.tlsCalls))
+	} else if reloader.tlsCalls[0].addr != "0.0.0.0:9090" {
+		t.Errorf("Reloader.RebindWithTLS(%q), want %q", reloader.tlsCalls[0].addr, "0.0.0.0:9090")
 	}
 	// Verify in-memory config swapped.
 	if h.Config.Server.Host != "0.0.0.0" || h.Config.Server.Port != 9090 {
@@ -207,8 +222,8 @@ func TestHandleSettingsPUT_InvalidPort(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("port 99999: status = %d, want 400", w.Code)
 	}
-	if len(reloader.calls) != 0 {
-		t.Errorf("Reloader should not be called on invalid port (was called %d times)", len(reloader.calls))
+	if len(reloader.tlsCalls) != 0 {
+		t.Errorf("Reloader should not be called on invalid port (was called %d times)", len(reloader.tlsCalls))
 	}
 }
 

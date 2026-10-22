@@ -35,6 +35,12 @@ const (
 	// to use; the admin is reachable at either address.
 	defaultHost = "0.0.0.0"
 	defaultPort = 39457
+	// maxSetupBodySize caps the size of JSON request bodies on setup
+	// wizard endpoints. 16 KiB accommodates the largest legitimate
+	// payload (the review endpoint with up to 500 excluded packages,
+	// ~11 KiB) while still bounding the per-request memory cost to
+	// defeat trivial DoS via huge bodies.
+	maxSetupBodySize = 16384
 )
 
 // resolvedListenPort holds the port the server is actually listening on,
@@ -156,8 +162,14 @@ type archivePasswordRequest struct {
 
 // HandleCredentialsPOST handles POST /admin/api/setup/credentials.
 func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSetupBodySize)
 	var req credentialsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			vlog.Get().Warn().Err(err).Msg("credentials: JSON body too large")
+			writeError(w, http.StatusBadRequest, "request body too large", "BODY_TOO_LARGE")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "Invalid request body", "INVALID_INPUT")
 		return
 	}
@@ -201,6 +213,13 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 		if p := resolvedListenPort.Load(); p > 0 {
 			port = int(p)
 		}
+		// H1 (2026-09-12): generate a random CSRF secret on first run
+		// so the server boots with a strong HMAC key, not a placeholder.
+		csrfSecret, csrfErr := auth.GenerateCSRFSecret()
+		if csrfErr != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to generate CSRF secret", "CSRF_GENERATION_ERROR")
+			return
+		}
 		cfg = &types.Config{
 			Server: types.ServerConfig{
 				Host: defaultHost,
@@ -211,6 +230,9 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 				Path: filepath.Join(h.DataDir, "vrhub.db"),
 			},
 			DataDir: h.DataDir,
+			CSRF: types.CSRFConfig{
+				Secret: csrfSecret,
+			},
 		}
 	} else {
 		writeError(w, http.StatusInternalServerError, "Failed to access configuration", "CONFIG_ERROR")
@@ -246,8 +268,14 @@ func (h *SetupHandler) HandleCredentialsPOST(w http.ResponseWriter, r *http.Requ
 func (h *SetupHandler) HandleSetupArchivePasswordPOST(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSetupBodySize)
 	var req archivePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			vlog.Get().Warn().Err(err).Msg("archive-password: JSON body too large")
+			writeError(w, http.StatusBadRequest, "request body too large", "BODY_TOO_LARGE")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "Invalid request body", "INVALID_INPUT")
 		return
 	}
@@ -291,8 +319,14 @@ func (h *SetupHandler) HandleSetupArchivePasswordPOST(w http.ResponseWriter, r *
 func (h *SetupHandler) HandleScanPOST(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSetupBodySize)
 	var req scanRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			vlog.Get().Warn().Err(err).Msg("scan: JSON body too large")
+			writeError(w, http.StatusBadRequest, "request body too large", "BODY_TOO_LARGE")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "Invalid request body", "INVALID_INPUT")
 		return
 	}
@@ -768,6 +802,7 @@ func (h *SetupHandler) HandleLaunchPOST(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Read optional port override from the frontend.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSetupBodySize)
 	var launchReq struct {
 		Port int `json:"port"`
 	}
@@ -914,8 +949,14 @@ func (h *SetupHandler) HandleLaunchPOST(w http.ResponseWriter, r *http.Request) 
 func (h *SetupHandler) HandleReviewPOST(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSetupBodySize)
 	var req reviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			vlog.Get().Warn().Err(err).Msg("review: JSON body too large")
+			writeError(w, http.StatusBadRequest, "request body too large", "BODY_TOO_LARGE")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "Invalid request body", "INVALID_INPUT")
 		return
 	}

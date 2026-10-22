@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"net"
@@ -441,6 +442,34 @@ func main() {
 		}()
 	}
 
+	// CSRF secret: load from config, generate on first-run.
+	// H1 (2026-09-12): the CSRF HMAC key must be a random 32-byte value
+	// persisted in config.toml. On normal-mode boot we load it; if empty
+	// (e.g. a config created before the 9.12 CSRF fix), we generate one,
+	// persist it, and reload.
+	if cfg != nil {
+		if loadErr := auth.LoadCSRFSecret(cfg.CSRF.Secret); loadErr != nil {
+			if cfg.CSRF.Secret == "" {
+				// First-run or pre-fix config: generate, persist, reload.
+				secret, genErr := auth.GenerateCSRFSecret()
+				if genErr != nil {
+					vlog.Get().Fatal().Err(genErr).Msg("failed to generate CSRF secret")
+				}
+				cfg.CSRF.Secret = secret
+				if persistErr := config.Save(cfg, dataDir); persistErr != nil {
+					vlog.Get().Fatal().Err(persistErr).Msg("failed to persist CSRF secret to config.toml")
+				}
+				vlog.Get().Info().Msg("CSRF secret generated and persisted to config.toml")
+				if loadErr = auth.LoadCSRFSecret(secret); loadErr != nil {
+					vlog.Get().Fatal().Err(loadErr).Msg("failed to load freshly-persisted CSRF secret")
+				}
+			} else {
+				// Secret exists but is invalid (wrong length, bad hex, placeholder).
+				vlog.Get().Fatal().Err(loadErr).Str("secret_hint", cfg.CSRF.Secret[:4]+"...").Msg("invalid CSRF secret in config.toml — check [csrf].secret")
+			}
+		}
+	}
+
 	// Story 6.4 Task 3: first-run API key generation. If
 	// cfg.Admin.APIKeyHash is empty, generate a fresh key, persist the
 	// hash to disk, and log the plaintext ONCE so the operator can
@@ -574,15 +603,53 @@ func main() {
 	// Start HTTP server in a goroutine so we can handle signals.
 	server := &http.Server{Addr: addr, Handler: r}
 
+	// Determine whether TLS is enabled for this boot.
+	tlsEnabled := cfg != nil && cfg.Server.TLSCertFile != "" && cfg.Server.TLSCertKey != ""
+
 	// Wire the live-rebinder so Rebind() can swap the listener.
 	reloader.server = &server
 	reloader.router = r
 	reloader.curAddr = addr
 	reloader.curPort = resolvedPort
+	// Wire initial TLS state so the rebinder knows whether the current
+	// listener is HTTPS or HTTP.
+	if cfg != nil {
+		reloader.tlsCert = cfg.Server.TLSCertFile
+		reloader.tlsKey = cfg.Server.TLSCertKey
+		reloader.tlsEnabled = tlsEnabled
+	}
+	if tlsEnabled {
+		// Log TLS certificate info (subject + issuer) for operator visibility.
+		certBytes, certReadErr := os.ReadFile(cfg.Server.TLSCertFile)
+		if certReadErr == nil {
+			certList, parseErr := x509.ParseCertificates(certBytes)
+			if parseErr == nil && len(certList) > 0 {
+				c := certList[0]
+				vlog.Get().Info().
+					Str("subject", c.Subject.CommonName).
+					Str("issuer", c.Issuer.CommonName).
+					Str("cert_file", cfg.Server.TLSCertFile).
+					Str("key_file", cfg.Server.TLSCertKey).
+					Msg("TLS enabled")
+			} else {
+				vlog.Get().Warn().Err(parseErr).Str("cert_file", cfg.Server.TLSCertFile).Msg("TLS enabled but could not parse certificate")
+			}
+		} else {
+			vlog.Get().Warn().Err(certReadErr).Str("cert_file", cfg.Server.TLSCertFile).Msg("TLS enabled but could not read certificate file")
+		}
+	} else {
+		vlog.Get().Info().Msg("TLS disabled — serving plaintext HTTP")
+	}
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			vlog.Get().Fatal().Err(err).Msg("Server failed")
+		var serveErr error
+		if tlsEnabled {
+			serveErr = server.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSCertKey)
+		} else {
+			serveErr = server.ListenAndServe()
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			vlog.Get().Fatal().Err(serveErr).Msg("Server failed")
 		}
 	}()
 
@@ -663,12 +730,21 @@ func main() {
 // non-elevated process is expected to see the warn logs and the
 // operator can fix the firewall manually (the admin UI stays
 // reachable on 127.0.0.1).
+//
+// TLS support (H2): when the operator changes tls_cert/tls_key via
+// the settings page, the rebinder switches between HTTPS and HTTP
+// listeners. If TLS files disappear during reload, it falls back
+// to HTTP with a warning. If TLS files appear during reload, it
+// switches to HTTPS.
 type liveRebinder struct {
-	mu      sync.Mutex
-	server  **http.Server
-	router  http.Handler
-	curAddr string
-	curPort int
+	mu         sync.Mutex
+	server     **http.Server
+	router     http.Handler
+	curAddr    string
+	curPort    int
+	tlsCert    string
+	tlsKey     string
+	tlsEnabled bool
 }
 
 func newLiveRebinder() *liveRebinder {
@@ -691,14 +767,30 @@ func (r *liveRebinder) Shutdown(ctx context.Context) error {
 // Rebind shuts down the current server (if any) and starts a new one
 // on addr. Returns an error if the new listener fails to bind (in
 // which case the old listener is left running).
+//
+// TLS support (H2): when the operator changes tls_cert/tls_key via
+// the settings page, the rebinder switches between HTTPS and HTTP
+// listeners. If TLS files disappear during reload, it falls back
+// to HTTP with a warning. If TLS files appear during reload, it
+// switches to HTTPS.
 func (r *liveRebinder) Rebind(addr string) error {
+	return r.RebindWithTLS(addr, "", "")
+}
+
+// RebindWithTLS is like Rebind but accepts explicit TLS cert/key paths.
+// When both are non-empty, the new listener serves HTTPS. When both
+// are empty, it falls back to HTTP.
+func (r *liveRebinder) RebindWithTLS(addr, certFile, keyFile string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.server != nil && r.curAddr == addr {
-		// No-op: already on this address.
+	if r.server != nil && r.curAddr == addr && r.tlsCert == certFile && r.tlsKey == keyFile {
+		// No-op: already on this address with the same TLS config.
 		return nil
 	}
+
+	// Determine TLS state for the new listener.
+	newTLSEnabled := certFile != "" && keyFile != ""
 
 	// Start the new server first. If it binds successfully, shut down
 	// the old one (so the rebind is a no-downtime operation when
@@ -713,6 +805,7 @@ func (r *liveRebinder) Rebind(addr string) error {
 	oldServer := *r.server
 	oldAddr := r.curAddr
 	oldPort := r.curPort
+	oldTLSEnabled := r.tlsEnabled
 	*r.server = newServer
 	r.curAddr = addr
 	// Cache the new port for the next rebind / for the shutdown
@@ -723,11 +816,29 @@ func (r *liveRebinder) Rebind(addr string) error {
 			r.curPort = p
 		}
 	}
+	r.tlsCert = certFile
+	r.tlsKey = keyFile
+	r.tlsEnabled = newTLSEnabled
+
+	// Log TLS state change if it occurred.
+	if oldTLSEnabled != newTLSEnabled {
+		if newTLSEnabled {
+			vlog.Get().Info().Str("cert", certFile).Str("key", keyFile).Msg("TLS enabled on rebind")
+		} else {
+			vlog.Get().Warn().Msg("TLS disabled on rebind — falling back to plaintext HTTP")
+		}
+	}
 
 	// Start the new server in a goroutine.
 	go func() {
-		if err := newServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			vlog.Get().Error().Err(err).Str("addr", addr).Msg("rebound server crashed")
+		var serveErr error
+		if newTLSEnabled {
+			serveErr = newServer.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			serveErr = newServer.Serve(listener)
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			vlog.Get().Error().Err(serveErr).Str("addr", addr).Msg("rebound server crashed")
 		}
 	}()
 
@@ -762,7 +873,7 @@ func (r *liveRebinder) Rebind(addr string) error {
 		}()
 	}
 
-	vlog.Get().Info().Str("old_addr", oldAddr).Str("new_addr", addr).Msg("listener rebound")
+	vlog.Get().Info().Str("old_addr", oldAddr).Str("new_addr", addr).Str("tls", fmt.Sprintf("%v", newTLSEnabled)).Msg("listener rebound")
 	return nil
 }
 
