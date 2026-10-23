@@ -145,6 +145,15 @@ ls -la /path/to/cert.pem /path/to/privkey.pem
 
 If the new TLS configuration is invalid, the rebind will fail and the server continues running with the old configuration. Check the logs for the specific error (certificate parse failure, key mismatch, etc.).
 
+### Changing TLS without changing host/port
+
+Changing `tls_cert`/`tls_key` alone (same `server.host`/`server.port`) is supported by a
+live rebind since 0.1.7: the running listener is gracefully shut down, then the HTTPS (or
+HTTP) listener is bound again. Expect a brief connection interruption (a few seconds at
+most) for the switch — unlike a host/port change, the same port cannot be bound twice
+simultaneously. If the certificate/key pair is invalid, the rebind is rejected before the
+running server is touched.
+
 ## Logging
 
 At startup, the server logs the certificate details:
