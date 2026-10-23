@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-23
+
 ### Added
 
 - **Split-7z game archives (VRP / Cyberdeck compatibility, Issue #1):** Each exposed game is
@@ -22,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-volume size. No database migration: the on-disk parts plus a small `.archive.json` marker
   (password hash + version code) are the source of truth, so a password change or game update
   regenerates the archive automatically.
+- **TLS/HTTPS support (#16):** Operator-provided certificates are now supported via a new
+  `[server]` config keys `tls_cert` and `tls_key`. When both are set the server binds with
+  `ListenAndServeTLS`; certificate/key files are validated at startup. Full setup guide in
+  `docs/TLS-SETUP.md`.
 
 ### Fixed
 
@@ -42,6 +48,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stale `.updating` removal retried on Windows:** The self-update applicator now retries
   deleting a leftover `.updating` file before failing, working around Windows' delayed
   file-handle release after a process exit.
+- **Self-update version never converged (#12):** `CurrentVersion` was hardcoded and never set
+  from build info, so an already-updated server kept reporting "update available" forever (and
+  looped indefinitely with `auto_apply` + `auto_restart`). The release workflow now injects the
+  real version via `-ldflags -X main.version=...` and the server calls `update.SetCurrentVersion()`
+  at startup.
+- **Setup wizard ignored the `-port` flag (#12):** A server launched with `-port 39999` ran the
+  whole wizard on 39999 but persisted the hardcoded default `39457` to `config.toml`, silently
+  switching ports on the next restart and breaking `/config.json`'s `baseUri` for VRHub clients.
+  The resolved listen port is now persisted.
+- **API key missing after the live setup-to-normal transition (#12):** A server that completed
+  the wizard without a restart had no API key, and the `/admin/api/scripts/*` middleware baked
+  in a permanent 503 at router-construction time that a later-generated key could never clear.
+  The key is now generated from the wizard's launch handler too, and the config is resolved
+  per-request.
+- **Per-session CSRF secret (#13, #17):** The session CSRF secret is no longer hardcoded. A
+  random secret is generated (or taken from config) at startup and CSRF tokens are derived per
+  session with HMAC-SHA256 and constant-time comparison. All state-changing admin endpoints
+  (update apply/reset/restart, game revalidate, game delete) now enforce CSRF validation;
+  read-only GET endpoints stay unprotected by design.
+- **Owner-only data directory (#14):** The config/data directory is created with `0700`
+  permissions so the archive password, API key hash and CSRF secret stored inside are no longer
+  readable by other local accounts.
+- **Request body size limits (#15):** All setup wizard handlers cap JSON request bodies at
+  16 KiB via `http.MaxBytesReader`, preventing memory exhaustion from oversized payloads.
 
 ## [0.1.5] - 2026-06-27
 
@@ -276,7 +306,9 @@ First public release.
   firewall clicks. The helper is a runtime no-op on Linux and macOS.
 - The embedded 7z helper binaries are bundled for every supported target.
 
-[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LeGeRyChEeSe/vrhub-server/compare/v0.1.1...v0.1.2
