@@ -244,7 +244,7 @@ func (h *AdminHandler) HandleCorruptionStatusGET(w http.ResponseWriter, r *http.
 		return
 	}
 
-	filePath := h.findGameFilePath(gameEntry.PackageName)
+	filePath := h.resolveGameFilePath(gameEntry)
 
 	resp := corruptionStatusResponse{
 		GameID:           gameEntry.ID,
@@ -288,7 +288,7 @@ func (h *AdminHandler) HandleRevalidatePOST(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	filePath := h.findGameFilePath(gameEntry.PackageName)
+	filePath := h.resolveGameFilePath(gameEntry)
 	if filePath == "" {
 		// Fix #9 (Round 11): Mark game as unexposed if file is missing instead of just returning error
 		vlog.Get().Warn().Str("package", gameEntry.PackageName).Msg("game file not found during manual revalidation, marking as unexposed")
@@ -563,7 +563,24 @@ func (h *AdminHandler) exposedToggleCore(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// findGameFilePath searches for the APK file of a game in the data directory.
+// resolveGameFilePath returns the on-disk APK path for a game row.
+// Story 9.10: the scanner persists games.apk_path (which may live in
+// game_folders, outside DataDir). The admin revalidate/corruption-status
+// endpoints must trust that column first — the legacy DataDir-only
+// search kept returning FILE_NOT_FOUND (and wrongly unexposing games)
+// for every game_folders import.
+func (h *AdminHandler) resolveGameFilePath(entry *types.GameEntry) string {
+	if entry != nil && entry.ApkPath != "" {
+		if info, err := os.Stat(entry.ApkPath); err == nil && !info.IsDir() {
+			return entry.ApkPath
+		}
+	}
+	return h.findGameFilePath(entry.PackageName)
+}
+
+// findGameFilePath searches for the APK file of a game in the data
+// directory. Legacy fallback only: used when games.apk_path is empty
+// (pre-9.10 rows) or points at a file that no longer exists on disk.
 func (h *AdminHandler) findGameFilePath(packageName string) string {
 	apkName := packageName + ".apk"
 	// Fix #14 (Round 10): Try direct path first to avoid O(N) directory scan
