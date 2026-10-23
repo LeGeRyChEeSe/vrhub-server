@@ -66,9 +66,10 @@ func SanitizeConfig(cfg *types.Config) map[string]interface{} {
 // HandleScriptsConfigGET serves the sanitized config (Story 6.5).
 // R6-AC-CONFIG-SECRETS: password_hash + api_key_hash are stripped.
 func (h *AdminHandler) HandleScriptsConfigGET(w http.ResponseWriter, r *http.Request) {
+	// Header-only setup: status + Content-Type are written by writeJSON below.
+	// An early w.WriteHeader(200) here caused "superfluous response.WriteHeader
+	// call" on every scripts poll (duplicate status write, 0.1.6 self-test logs).
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 
 	cfg, ok := h.resolveConfig()
 	if !ok {
