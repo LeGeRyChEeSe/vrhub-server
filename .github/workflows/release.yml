@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.1.6). Required for manual runs; ignored for tag pushes.'
+        required: false
+        default: ''
+      draft:
+        description: 'Create the release as a draft for pre-release validation. Set false to publish the final release.'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -21,6 +32,38 @@ jobs:
         with:
           go-version: "1.26"
 
+      - name: Resolve release parameters
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+            DRAFT="false"
+          else
+            if [ -z "${INPUT_VERSION}" ]; then
+              echo "Manual runs require the version input (e.g. 0.1.6)." >&2
+              exit 1
+            fi
+            RELEASE_TAG="v${INPUT_VERSION}"
+            DRAFT="${INPUT_DRAFT}"
+          fi
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Invalid release version: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          DRAFT_FLAG=""
+          if [ "${DRAFT}" = "true" ]; then DRAFT_FLAG="--draft"; fi
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+          echo "DRAFT_FLAG=${DRAFT_FLAG}" >> $GITHUB_ENV
+          if [ -n "${DRAFT_FLAG}" ]; then
+            echo "Draft mode: release is created as DRAFT (assets downloadable by maintainers only). Publish it (gh release edit ${RELEASE_TAG} --draft=false) to make it official." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Publish mode: release will be published immediately." >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Vet
         run: go vet ./...
 
@@ -29,7 +72,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           VERSION="${TAG#v}"
           mkdir -p dist
           MANIFEST="cmd/server/vrhub-server.exe.manifest"
@@ -66,7 +109,7 @@ jobs:
         id: notes
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           # Pull the section for this version out of CHANGELOG.md.
           # Regex-free matching so it behaves the same across awk variants.
           awk -v hdr="## [${VERSION}]" '
@@ -80,7 +123,7 @@ jobs:
           awk 'NF {p=NR} {a[NR]=$0} END {for (i=1;i<=p;i++) print a[i]}' release-notes.md > release-notes.trimmed
           mv release-notes.trimmed release-notes.md
           if [ ! -s release-notes.md ]; then
-            echo "Release ${GITHUB_REF_NAME}" > release-notes.md
+            echo "Release ${RELEASE_TAG}" > release-notes.md
           fi
           echo "--- release notes ---"
           cat release-notes.md
@@ -90,8 +133,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
+            ${DRAFT_FLAG} \
             --notes-file release-notes.md \
             dist/vrhub-server-*.zip \
             dist/checksums.txt
