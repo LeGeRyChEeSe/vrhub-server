@@ -812,11 +812,20 @@ func setupAdminRouter(modeVal *atomic.Value, dataDir string, gameDB *db.DB, cfg 
 			// (pure reachability probe, no auth, no DB, no cfg dep).
 			// Every other path on /api/scripts/* is delegated to the
 			// auth-protected apiKeyRouter.
+			//
+			// Payload contract: the probe is key-agnostic, so it must
+			// never claim "authenticated":true,"via":"api_key" — a
+			// monitoring tool would read a broken/missing X-API-Key as
+			// a valid one (false positive, live observation on 0.1.6).
+			// It returns a neutral {"ok":true,"ping":true} instead.
 			scriptsRouter := chi.NewRouter()
 			scriptsRouter.Get("/_ping", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"data":{"authenticated":true,"via":"api_key"}}`))
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"data": map[string]interface{}{
+						"ok":   true,
+						"ping": true,
+					},
+				})
 			})
 			scriptsRouter.Mount("/", apiKeyRouter)
 			protectedRouter.Mount("/api/scripts", scriptsRouter)
