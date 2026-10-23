@@ -254,10 +254,10 @@ var endpointCatalog = []EndpointDoc{
 		ExampleCurl: `curl -X POST -H "X-API-Key: YOUR_KEY" http://HOST:PORT/admin/api/scripts/update/apply`,
 	},
 	{
-		Method: "GET", Path: "/admin/api/scripts/_ping", Auth: "api_key",
-		Description:    "Health-check endpoint. Returns 200 if the X-API-Key is valid; useful for monitoring tools.",
-		ResponseSchema: `{"data": {"authenticated": true, "via": "api_key"}}`,
-		ExampleCurl:    `curl -H "X-API-Key: YOUR_KEY" http://HOST:PORT/admin/api/scripts/_ping`,
+		Method: "GET", Path: "/admin/api/scripts/_ping", Auth: "public",
+		Description:    "Reachability probe. Always 200 (no auth required, even in setup mode). To verify the X-API-Key itself, probe an authenticated scripts route such as GET /admin/api/scripts/games instead.",
+		ResponseSchema: `{"data": {"ok": true, "ping": true}}`,
+		ExampleCurl:    `curl http://HOST:PORT/admin/api/scripts/_ping`,
 	},
 
 	// ----- Documentation -----
