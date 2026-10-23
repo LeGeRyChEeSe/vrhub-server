@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Live rebind with TLS on the same address:** changing `tls_cert`/`tls_key` without
+  changing `server.host`/`server.port` used to fail with `rebind_status: "failed"`
+  (Windows: "Only one usage of each socket address…") because the rebinder bound the
+  new listener before shutting the old one down — TLS only took effect after a full
+  restart. A TLS-only change on the same address now validates the key pair first (an
+  invalid certificate never tears down a running server), gracefully shuts the old
+  listener down, then binds the new one (brief downtime for the TLS toggle), restoring
+  the old listener if the bind fails. Host/port changes keep the no-downtime
+  bind-before-shutdown path (Story 6-3 R13-P2). The initial boot also pre-binds a
+  tracked listener so `server.Shutdown()` closes the port even in TLS mode.
+
 ## [0.1.6] - 2026-10-23
 
 ### Added

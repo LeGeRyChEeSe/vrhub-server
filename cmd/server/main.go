@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"flag"
 	"fmt"
@@ -641,12 +642,19 @@ func main() {
 		vlog.Get().Info().Msg("TLS disabled — serving plaintext HTTP")
 	}
 
+	// Pre-bind the listener so server.Shutdown() closes the port even in
+	// TLS mode (ListenAndServeTLS binds internally and Shutdown cannot
+	// close that listener, which would block a same-addr TLS rebind).
+	initialListener, listenErr := net.Listen("tcp", addr)
+	if listenErr != nil {
+		vlog.Get().Fatal().Err(listenErr).Str("addr", addr).Msg("Server failed")
+	}
 	go func() {
 		var serveErr error
 		if tlsEnabled {
-			serveErr = server.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSCertKey)
+			serveErr = server.ServeTLS(initialListener, cfg.Server.TLSCertFile, cfg.Server.TLSCertKey)
 		} else {
-			serveErr = server.ListenAndServe()
+			serveErr = server.Serve(initialListener)
 		}
 		if serveErr != nil && serveErr != http.ErrServerClosed {
 			vlog.Get().Fatal().Err(serveErr).Msg("Server failed")
@@ -792,20 +800,110 @@ func (r *liveRebinder) RebindWithTLS(addr, certFile, keyFile string) error {
 	// Determine TLS state for the new listener.
 	newTLSEnabled := certFile != "" && keyFile != ""
 
+	oldServer := *r.server
+	oldAddr := r.curAddr
+	oldPort := r.curPort
+	oldTLSEnabled := r.tlsEnabled
+	oldCert := r.tlsCert
+	oldKey := r.tlsKey
+
+	// TLS-only change on the SAME address: the old listener still holds
+	// addr, so binding the new listener before shutting the old one down
+	// can never succeed (Windows: "Only one usage of each socket address
+	// (protocol/network address/port) is normally permitted" — the 0.1.6
+	// self-test saw rebind_status: "failed" on a same-addr tls_cert/
+	// tls_key change). Validate the key pair first (a bad cert must not
+	// tear down a running server), then shut the old listener down and
+	// bind inside a goroutine: Rebind runs in a handler served by
+	// oldServer, so a synchronous Shutdown would deadlock until its
+	// timeout. Trade-off: a brief downtime for TLS toggles. Address/
+	// port changes keep the no-downtime bind-first path below.
+	if addr == oldAddr && oldServer != nil {
+		if newTLSEnabled {
+			if _, err := tls.LoadX509KeyPair(certFile, keyFile); err != nil {
+				return fmt.Errorf("rebind: invalid TLS key pair for %s: %w", addr, err)
+			}
+		}
+
+		newServer := &http.Server{Addr: addr, Handler: r.router}
+		*r.server = newServer
+		r.tlsCert = certFile
+		r.tlsKey = keyFile
+		r.tlsEnabled = newTLSEnabled
+
+		go func() {
+			shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutCancel()
+			if err := oldServer.Shutdown(shutCtx); err != nil {
+				// Usually the 10s deadline waiting on a long-lived stream
+				// (SSE monitor). Shutdown still closed the listener, so
+				// the bind below can succeed.
+				vlog.Get().Warn().Err(err).Str("addr", oldAddr).Msg("graceful shutdown of old listener failed (same-addr TLS rebind continues)")
+			}
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				vlog.Get().Error().Err(err).Str("addr", addr).Msg("rebind: same-addr rebind could not bind after shutdown — restoring old listener")
+				restoreServer := &http.Server{Addr: oldAddr, Handler: r.router}
+				restoreListener, restoreErr := net.Listen("tcp", oldAddr)
+				if restoreErr != nil {
+					vlog.Get().Error().Err(restoreErr).Str("addr", oldAddr).Msg("rebind: old listener could not be restored — server unreachable until restart")
+					return
+				}
+				r.mu.Lock()
+				*r.server = restoreServer
+				r.tlsCert = oldCert
+				r.tlsKey = oldKey
+				r.tlsEnabled = oldTLSEnabled
+				r.mu.Unlock()
+				go func() {
+					var serveErr error
+					if oldTLSEnabled {
+						serveErr = restoreServer.ServeTLS(restoreListener, oldCert, oldKey)
+					} else {
+						serveErr = restoreServer.Serve(restoreListener)
+					}
+					if serveErr != nil && serveErr != http.ErrServerClosed {
+						vlog.Get().Error().Err(serveErr).Str("addr", oldAddr).Msg("restored server crashed")
+					}
+				}()
+				return
+			}
+			go func() {
+				var serveErr error
+				if newTLSEnabled {
+					serveErr = newServer.ServeTLS(listener, certFile, keyFile)
+				} else {
+					serveErr = newServer.Serve(listener)
+				}
+				if serveErr != nil && serveErr != http.ErrServerClosed {
+					vlog.Get().Error().Err(serveErr).Str("addr", addr).Msg("rebound server crashed")
+				}
+			}()
+			vlog.Get().Info().Str("addr", addr).Str("tls", fmt.Sprintf("%v", newTLSEnabled)).Msg("listener rebound (same address, TLS-only change)")
+		}()
+
+		if oldTLSEnabled != newTLSEnabled {
+			if newTLSEnabled {
+				vlog.Get().Info().Str("cert", certFile).Str("key", keyFile).Msg("TLS enabled on rebind")
+			} else {
+				vlog.Get().Warn().Msg("TLS disabled on rebind — falling back to plaintext HTTP")
+			}
+		}
+		vlog.Get().Info().Str("old_addr", oldAddr).Str("new_addr", addr).Str("tls", fmt.Sprintf("%v", newTLSEnabled)).Msg("listener rebound")
+		return nil
+	}
+
 	// Start the new server first. If it binds successfully, shut down
-	// the old one (so the rebind is a no-downtime operation when
-	// the host/port are valid; if binding fails, the old one keeps
-	// running and the operator sees the rebind_status: "failed" in
-	// the response).
+	// the old one (so the rebind is a no-downtime operation when the
+	// host/port are valid; if binding fails, the old one keeps running
+	// and the operator sees rebind_status: "failed" in the response).
+	// Reached only when addr changed — the same-addr case above cannot
+	// bind before shutting the old listener down.
 	newServer := &http.Server{Addr: addr, Handler: r.router}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("rebind: listen on %s: %w", addr, err)
 	}
-	oldServer := *r.server
-	oldAddr := r.curAddr
-	oldPort := r.curPort
-	oldTLSEnabled := r.tlsEnabled
 	*r.server = newServer
 	r.curAddr = addr
 	// Cache the new port for the next rebind / for the shutdown
