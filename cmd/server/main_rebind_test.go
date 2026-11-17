@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -92,21 +93,41 @@ func insecureTLSClient() *http.Client {
 	}
 }
 
+// waitServing polls url until it answers 200, failing only if that never
+// happens within the deadline.
+//
+// A non-200 answer is retried instead of being treated as fatal, because a
+// same-address TLS-only rebind hands the port over inside a goroutine:
+// RebindWithTLS returns as soon as the handoff is scheduled (it runs in a
+// handler served by the old server, so a synchronous Shutdown would deadlock
+// until its timeout). During that window the previous listener can still
+// accept a connection, and Go answers a plaintext request reaching the old TLS
+// server with 400 "client sent an HTTP request to an HTTPS server". That is the
+// handoff in progress, not a broken server: waiting it out is exactly what this
+// helper is for. A status that never becomes 200 still fails, with the last
+// observed status or error in the message.
+//
+// The assertions that something must NOT be served any more after a rebind
+// (plaintext after TLS enable, HTTPS after TLS disable) are separate checks at
+// the call sites and are unchanged.
 func waitServing(t *testing.T, client *http.Client, url string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
+	last := "no attempt made"
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
-		if err == nil {
+		if err != nil {
+			last = err.Error()
+		} else {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return
 			}
-			t.Fatalf("%s: status %d, want 200", url, resp.StatusCode)
+			last = fmt.Sprintf("status %d", resp.StatusCode)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("%s: not serving after 10s", url)
+	t.Fatalf("%s: not serving with 200 after 10s (last attempt: %s)", url, last)
 }
 
 // wireRebinder builds a rebinder whose CURRENT listener is already live
