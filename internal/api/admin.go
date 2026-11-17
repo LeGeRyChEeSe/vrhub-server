@@ -174,12 +174,22 @@ func (h *AdminHandler) UpdateConfig(newCfg *types.Config) error {
 const PostLoginRedirect = "/admin/dashboard"
 
 // corruptionStatusResponse is the JSON response for corruption status endpoint.
+//
+// Audit fix (2026-11): `Found` tells the caller whether the game file was
+// located on disk at request time. When it is false, `Corrupted`/
+// `CorruptionReason` are the last DB-known values — a cached verdict that
+// was NOT re-verified (the file is gone, so no validation could run) — and
+// `Reason` says why. Callers must check `Found` before trusting
+// `Corrupted == false`. The existing fields keep their names and types so
+// the admin UI and the documented schema stay compatible.
 type corruptionStatusResponse struct {
 	GameID           int64  `json:"game_id"`
 	ReleaseName      string `json:"release_name"`
 	Corrupted        bool   `json:"corrupted"`
 	CorruptionReason string `json:"corruption_reason,omitempty"`
 	FilePath         string `json:"file_path"`
+	Found            bool   `json:"found"`
+	Reason           string `json:"reason,omitempty"`
 }
 
 // revalidateResponse is the JSON response for revalidation endpoint.
@@ -252,6 +262,18 @@ func (h *AdminHandler) HandleCorruptionStatusGET(w http.ResponseWriter, r *http.
 		Corrupted:        gameEntry.Corrupted,
 		CorruptionReason: gameEntry.CorruptionReason,
 		FilePath:         filePath,
+	}
+
+	// Audit fix (2026-11): when the file cannot be located, the endpoint
+	// used to answer with the DB-cached verdict only — `corrupted:false`
+	// read as "the file was checked and is fine" even though nothing was
+	// checked. Flag that explicitly instead of returning a stale verdict;
+	// the status code stays 200 so the admin UI keeps working.
+	if filePath == "" {
+		resp.Found = false
+		resp.Reason = "file missing: no game file found on disk for this package (corruption fields are the last DB-known values, not a fresh check)"
+	} else {
+		resp.Found = true
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -569,10 +591,30 @@ func (h *AdminHandler) exposedToggleCore(w http.ResponseWriter, r *http.Request)
 // endpoints must trust that column first — the legacy DataDir-only
 // search kept returning FILE_NOT_FOUND (and wrongly unexposing games)
 // for every game_folders import.
+// resolveGameFilePath returns the on-disk APK path for a game row.
+// Story 9.10: the scanner persists games.apk_path (which may live in
+// game_folders, outside DataDir). The admin revalidate/corruption-status
+// endpoints must trust that column first — the legacy DataDir-only
+// search kept returning FILE_NOT_FOUND (and wrongly unexposing games)
+// for every game_folders import.
+//
+// Audit fix (2026-11): a RELATIVE apk_path is stat'd against the process
+// CWD by os.Stat, which is not where the file lives: the public serving
+// layer resolves such a path against DataDir, so revalidate used to see a
+// "missing" file and flip the game to unexposed while the download still
+// worked. A relative apk_path is therefore also resolved against DataDir
+// before falling back to the legacy search. Absolute paths, empty values
+// and directory values keep their previous behaviour.
 func (h *AdminHandler) resolveGameFilePath(entry *types.GameEntry) string {
 	if entry != nil && entry.ApkPath != "" {
-		if info, err := os.Stat(entry.ApkPath); err == nil && !info.IsDir() {
-			return entry.ApkPath
+		candidates := []string{entry.ApkPath}
+		if !filepath.IsAbs(entry.ApkPath) {
+			candidates = append(candidates, filepath.Join(h.DataDir, entry.ApkPath))
+		}
+		for _, p := range candidates {
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p
+			}
 		}
 	}
 	return h.findGameFilePath(entry.PackageName)

@@ -36,7 +36,7 @@ import (
 // version is injected at build time via -ldflags "-X main.version=X.Y.Z"
 // (see .github/workflows/release.yml). Defaults to the last hardcoded
 // release for local `go build` runs that don't pass ldflags.
-var version = "0.1.4"
+var version = "0.1.6"
 
 func main() {
 	var dataDir string
@@ -57,6 +57,7 @@ func main() {
 	// already-updated server keeps reporting "update available").
 	if parsedVersion, parseErr := update.ParseVersion(version); parseErr == nil {
 		update.SetCurrentVersion(parsedVersion)
+		network.SetUserAgent(parsedVersion.String())
 	} else {
 		vlog.Get().Warn().Err(parseErr).Str("version", version).Msg("failed to parse build version; using package default")
 	}
@@ -792,7 +793,18 @@ func (r *liveRebinder) RebindWithTLS(addr, certFile, keyFile string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.server != nil && r.curAddr == addr && r.tlsCert == certFile && r.tlsKey == keyFile {
+	// Audit fix (2026-11): `r.server` is the pointer to the process-wide
+	// server slot. It is wired by main() before any handler can reach a
+	// rebind, but a nil slot must not be dereferenced here: return an
+	// error instead of panicking. A wired slot whose current server is
+	// still nil keeps the previous bind-first behaviour (oldServer == nil).
+	var oldServer *http.Server
+	if r.server == nil {
+		return fmt.Errorf("rebind: no HTTP server slot wired — cannot rebind to %s", addr)
+	}
+	oldServer = *r.server
+
+	if r.curAddr == addr && r.tlsCert == certFile && r.tlsKey == keyFile {
 		// No-op: already on this address with the same TLS config.
 		return nil
 	}
@@ -800,7 +812,6 @@ func (r *liveRebinder) RebindWithTLS(addr, certFile, keyFile string) error {
 	// Determine TLS state for the new listener.
 	newTLSEnabled := certFile != "" && keyFile != ""
 
-	oldServer := *r.server
 	oldAddr := r.curAddr
 	oldPort := r.curPort
 	oldTLSEnabled := r.tlsEnabled
@@ -846,7 +857,24 @@ func (r *liveRebinder) RebindWithTLS(addr, certFile, keyFile string) error {
 				restoreServer := &http.Server{Addr: oldAddr, Handler: r.router}
 				restoreListener, restoreErr := net.Listen("tcp", oldAddr)
 				if restoreErr != nil {
-					vlog.Get().Error().Err(restoreErr).Str("addr", oldAddr).Msg("rebind: old listener could not be restored — server unreachable until restart")
+					// Audit fix (2026-11): neither the new nor the old
+					// listener could be bound. Roll the rebinder state back
+					// to what it was before this rebind — including the
+					// server slot, which we overwrote with the newServer
+					// above — so a later rebind (or Shutdown) does not act
+					// on a stale server value / stale TLS config. Without
+					// this, the next same-addr rebind would try to shut down
+					// a server that never served anything and keep the
+					// aborted TLS cert/key.
+					vlog.Get().Error().Err(restoreErr).Str("addr", oldAddr).Msg("rebind: old listener could not be restored — server unreachable until restart, rolling back rebinder state")
+					r.mu.Lock()
+					*r.server = oldServer
+					r.curAddr = oldAddr
+					r.curPort = oldPort
+					r.tlsCert = oldCert
+					r.tlsKey = oldKey
+					r.tlsEnabled = oldTLSEnabled
+					r.mu.Unlock()
 					return
 				}
 				r.mu.Lock()

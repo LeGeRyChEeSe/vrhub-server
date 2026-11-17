@@ -92,10 +92,23 @@ const (
 	// the canonical 2xx response is intentional (some CDN paths
 	// add 1s of TLS handshake on cold cache).
 	HTTPTimeout = 3 * time.Second
-
-	// userAgent is required by GitHub (rejects empty UA with 403).
-	userAgent = "vrhub-server/0.1.0"
 )
+
+// userAgent is required by GitHub (rejects empty UA with 403).
+// Audit fix (2026-11): it used to hard-code a second version literal
+// that drifted from the build version. main.go now wires the same
+// ldflags-injected version through SetUserAgent, mirroring
+// update.SetCurrentVersion; this default matches CurrentVersion's
+// package default for local runs that don't pass ldflags.
+var userAgent = "vrhub-server/0.1.6"
+
+// SetUserAgent overrides the User-Agent header sent by the checker
+// (typically from main.go with the build-time version).
+func SetUserAgent(version string) {
+	if version != "" {
+		userAgent = "vrhub-server/" + version
+	}
+}
 
 // Checker is the long-lived background reachability checker.
 // One instance per process; constructed by main.go and shared
