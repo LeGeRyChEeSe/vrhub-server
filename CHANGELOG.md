@@ -5,21 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **Live rebind with TLS on the same address:** changing `tls_cert`/`tls_key` without
-  changing `server.host`/`server.port` used to fail with `rebind_status: "failed"`
-  (Windows: "Only one usage of each socket address…") because the rebinder bound the
-  new listener before shutting the old one down — TLS only took effect after a full
-  restart. A TLS-only change on the same address now validates the key pair first (an
-  invalid certificate never tears down a running server), gracefully shuts the old
-  listener down, then binds the new one (brief downtime for the TLS toggle), restoring
-  the old listener if the bind fails. Host/port changes keep the no-downtime
-  bind-before-shutdown path (Story 6-3 R13-P2). The initial boot also pre-binds a
-  tracked listener so `server.Shutdown()` closes the port even in TLS mode.
-
 ## [0.1.6] - 2026-10-23
 
 ### Added
@@ -85,6 +70,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   readable by other local accounts.
 - **Request body size limits (#15):** All setup wizard handlers cap JSON request bodies at
   16 KiB via `http.MaxBytesReader`, preventing memory exhaustion from oversized payloads.
+
+- **Live rebind with TLS on the same address:** changing `tls_cert`/`tls_key` without
+  changing `server.host`/`server.port` used to fail with `rebind_status: "failed"`
+  (Windows: "Only one usage of each socket address…") because the rebinder bound the
+  new listener before shutting the old one down — TLS only took effect after a full
+  restart. A TLS-only change on the same address now validates the key pair first (an
+  invalid certificate never tears down a running server), gracefully shuts the old
+  listener down, then binds the new one (brief downtime for the TLS toggle), restoring
+  the old listener if the bind fails. Host/port changes keep the no-downtime
+  bind-before-shutdown path (Story 6-3 R13-P2). The initial boot also pre-binds a
+  tracked listener so `server.Shutdown()` closes the port even in TLS mode.
+- **Relative `apk_path` resolved against the wrong base (admin revalidate):** the admin
+  revalidate handler statted a relative `games.apk_path` against the process working directory
+  instead of the data directory, so games served correctly by the public layer were wrongly
+  marked corrupted and unexposed. Relative paths now resolve against `DataDir`, matching the
+  public serving path.
+- **Corruption status reported a stale verdict for a missing file:** `GET` corruption status
+  returned the cached `corrupted:false` when no game file exists on disk, giving no indication
+  that the library entry is broken. It now reports `found:false` with a reason.
+- **Same-address TLS rebind left the rebinder inconsistent when both binds failed:** the
+  rollback path did not restore the rebinder's own state (server slot, address, TLS cert/key),
+  and `RebindWithTLS` dereferenced a nil server slot. The previous state is now restored, and a
+  server with no tracked listener no longer panics.
+- **Update banner offered an update to the version already running:** the package defaults for
+  the current version still advertised 0.1.4 while 0.1.6 was the shipped release, so an
+  up-to-date server kept offering to "update" (and, with `auto_apply`, re-applying the same
+  release). The defaults now match the shipped release, and the outbound User-Agent is derived
+  from the same value instead of a second hardcoded string.
+- **Documentation described versions the code does not have:** `docs/API.md` showed an outdated
+  server version in its example response, and `docs/TLS-SETUP.md` claimed TLS was available
+  "since 0.1.7", a release that does not exist.
 
 ## [0.1.5] - 2026-06-27
 
