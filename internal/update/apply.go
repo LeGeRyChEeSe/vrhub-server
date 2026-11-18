@@ -68,6 +68,44 @@ type ApplyConfig struct {
 	AutoRestart bool // when false, stage the binary but return ErrRestartPending instead of restarting
 }
 
+// checksumsURLFor derives the SHA-256 sidecar URL of the release an asset was
+// taken from: the release workflow publishes checksums.txt next to the platform
+// archives (releases/download/<tag>/checksums.txt), so it lives in the same
+// directory as the asset URL the checker just resolved. An empty result means
+// no verification, which is what the applicator already does when ChecksumURL is
+// unset; derivation only fails for a URL that is not an https asset URL.
+func checksumsURLFor(downloadURL string) string {
+	u, err := url.Parse(downloadURL)
+	if err != nil || u.Scheme != "https" || u.Path == "" {
+		return ""
+	}
+	dir := path.Dir(u.Path)
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	u.Path = path.Join(dir, "checksums.txt")
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
+// newAutoApplyApplicator builds the applicator used by the checker's auto-apply
+// path. It inherits the data directory and backup policy of the checker's
+// applicator and adds checksum verification against the release's own
+// checksums.txt, so an archive that does not match the published hash is never
+// installed.
+func newAutoApplyApplicator(base *Applicator, downloadURL, version string, autoRestart bool) *Applicator {
+	return NewApplicator(ApplyConfig{
+		DataDir:     base.config.DataDir,
+		AutoBackup:  true,
+		MaxBackups:  base.config.MaxBackups,
+		DownloadURL: downloadURL,
+		ChecksumURL: checksumsURLFor(downloadURL),
+		Version:     version,
+		AutoRestart: autoRestart,
+	})
+}
+
 // DefaultApplyConfig returns default apply configuration.
 func DefaultApplyConfig(dataDir string) ApplyConfig {
 	return ApplyConfig{
@@ -484,6 +522,78 @@ func (a *Applicator) validateDownload(ctx context.Context, zipPath string) error
 	return nil
 }
 
+// selectExpectedChecksum picks the checksum that applies to the asset this
+// client downloaded out of a checksum sidecar body.
+//
+// The published release ships one checksums.txt listing every platform archive
+// (darwin/linux/windows x amd64/arm64), while this client downloads exactly one
+// of them. Taking the first line of such a file compares the windows-amd64
+// archive against the darwin-amd64 hash, so every update fails closed on every
+// platform except the one that happens to be listed first. The entry whose name
+// carries this client's GOOS-GOARCH is therefore the one to compare; a sidecar
+// naming the local file directly is honoured too, and a single-entry or bare-hex
+// sidecar keeps its previous meaning. When several entries exist and none names
+// this platform, that is a mismatch: fail closed instead of guessing.
+func selectExpectedChecksum(body string, zipPath string) (string, error) {
+	type entry struct{ hash, name string }
+
+	var entries []entry
+	for _, line := range strings.Split(body, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) == 1 {
+			// Bare hex, no filename: only meaningful if it is the whole body.
+			if len(entries) > 0 || strings.Contains(body, "\n") {
+				return "", fmt.Errorf("checksum file is malformed: unexpected line %q", strings.TrimSpace(line))
+			}
+			return strings.TrimPrefix(fields[0], "sha256:"), nil
+		}
+		entries = append(entries, entry{
+			hash: strings.TrimPrefix(fields[0], "sha256:"),
+			name: path.Base(strings.TrimPrefix(fields[len(fields)-1], "*")),
+		})
+	}
+
+	if len(entries) == 0 {
+		return "", fmt.Errorf("empty checksum body")
+	}
+
+	// The archive this client downloaded is named vrhub-server-<version>.zip
+	// locally but vrhub-server-<version>-<goos>-<goarch>.zip in the release.
+	platform := fmt.Sprintf("-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+	localName := filepath.Base(zipPath)
+
+	var candidates []entry
+	for _, e := range entries {
+		if strings.Contains(e.name, platform) || e.name == localName {
+			candidates = append(candidates, e)
+		}
+	}
+
+	switch len(candidates) {
+	case 1:
+		return candidates[0].hash, nil
+	case 0:
+		if len(entries) == 1 {
+			// Single-entry sidecar that names something else (older naming, or a
+			// per-release single-asset file): still the only checksum available.
+			return entries[0].hash, nil
+		}
+		return "", fmt.Errorf("checksum file has %d entries and none matches this platform (%s), local name %q",
+			len(entries), platform, localName)
+	default:
+		names := make([]string, 0, len(candidates))
+		for _, c := range candidates {
+			names = append(names, c.name)
+		}
+		sort.Strings(names)
+		return "", fmt.Errorf("checksum file is ambiguous for this platform (%s): %s",
+			platform, strings.Join(names, ", "))
+	}
+}
+
 // verifySHA256 downloads the SHA-256 sidecar from ChecksumURL and compares it
 // to the actual hash of zipPath. The expected value may be a bare hex string
 // or the "sha256:" prefix used by sha256sum.
@@ -509,17 +619,15 @@ func (a *Applicator) verifySHA256(ctx context.Context, zipPath string) error {
 		return fmt.Errorf("unexpected checksum status: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
 	if err != nil {
 		return fmt.Errorf("failed to read checksum body: %w", err)
 	}
 
-	// Strip optional "sha256:" prefix or "*filename" suffix (sha256sum format).
-	fields := strings.Fields(string(body))
-	if len(fields) == 0 {
-		return fmt.Errorf("empty checksum body")
+	expected, err := selectExpectedChecksum(string(body), zipPath)
+	if err != nil {
+		return fmt.Errorf("checksum selection failed: %w", err)
 	}
-	expected := strings.TrimPrefix(fields[0], "sha256:")
 
 	f, err := os.Open(zipPath)
 	if err != nil {

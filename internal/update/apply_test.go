@@ -949,6 +949,226 @@ func TestVerifySHA256_RejectsHTTP(t *testing.T) {
 	}
 }
 
+// sha256Of is the hex SHA-256 of b, matching sha256sum output format.
+func sha256Of(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// TestSelectExpectedChecksum_MultiPlatformSidecar covers the shape the release
+// workflow actually publishes: one checksums.txt with an entry per platform,
+// while the client downloads a single archive. Selecting the first line of that
+// file (the old behaviour) compares this platform's archive against another
+// platform's hash and fails every update on every platform but the first listed.
+func TestSelectExpectedChecksum_MultiPlatformSidecar(t *testing.T) {
+	platform := fmt.Sprintf("-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+
+	entries := []struct{ name, hash string }{
+		{"vrhub-server-darwin-amd64.zip", "4a6e0c9ead8dfee109366ef72d94a50e57978eebd37593255fb120957c4f5e71"},
+		{"vrhub-server-darwin-arm64.zip", "c70cae338fdcfbd7d8fb914fbaf3fd13f532954998192e6a1f8ae8a66b58c4fb"},
+		{"vrhub-server-linux-amd64.zip", "408b4d38a7013e11e24c1ce07b155bb73736fd36849aae96d4c9f8c5b275e581"},
+		{"vrhub-server-linux-arm64.zip", "c3e7af08cc7c5613caa9aaf36f40beefe8e6cf0c1866682af3299213c8375cb4"},
+		{"vrhub-server-windows-amd64.zip", "979fbb5179d150fb1dfcf120ed7cdbf20708ebb257c4c2331f53c9d11b4705e2"},
+		{"vrhub-server-windows-arm64.zip", "c69c82d3c830e936c4e10677f6039915255e700e1d77111b87322ba2547a4c15"},
+	}
+	var body strings.Builder
+	want := ""
+	for _, e := range entries {
+		fmt.Fprintf(&body, "%s  %s\n", e.hash, e.name)
+		if strings.Contains(e.name, platform) {
+			want = e.hash
+		}
+	}
+	if want == "" {
+		t.Fatalf("fixture has no entry for this platform (%s): %s", platform, body.String())
+	}
+
+	got, err := selectExpectedChecksum(body.String(), filepath.Join("dir", "vrhub-server-0.1.6.zip"))
+	if err != nil {
+		t.Fatalf("selectExpectedChecksum: %v", err)
+	}
+	if got != want {
+		t.Errorf("selected checksum = %q, want the %s entry %q", got, platform, want)
+	}
+	if first := strings.Fields(body.String())[0]; got == first && len(entries) > 1 && first != want {
+		t.Errorf("selected the first line of a multi-platform sidecar instead of this platform's entry")
+	}
+}
+
+func TestSelectExpectedChecksum_LocalNameMatch(t *testing.T) {
+	payload := fakeBinaryBytes()
+	hash := sha256Of(payload)
+	body := fmt.Sprintf("%s  vrhub-server-other-thing.zip\n%s  vrhub-server-0.1.6.zip\n",
+		"0000000000000000000000000000000000000000000000000000000000000000", hash)
+
+	got, err := selectExpectedChecksum(body, filepath.Join("dir", "vrhub-server-0.1.6.zip"))
+	if err != nil {
+		t.Fatalf("selectExpectedChecksum: %v", err)
+	}
+	if got != hash {
+		t.Errorf("selected checksum = %q, want the entry naming the local file %q", got, hash)
+	}
+}
+
+func TestSelectExpectedChecksum_SingleEntryAndBareHex(t *testing.T) {
+	got, err := selectExpectedChecksum("deadbeefcafebabe0000000000000000000000000000000000000000000000ff  vrhub-server-linux-arm64.zip\n",
+		filepath.Join("dir", "vrhub-server-0.1.6.zip"))
+	if err != nil {
+		t.Fatalf("single-entry sidecar must stay usable: %v", err)
+	}
+	if got != "deadbeefcafebabe0000000000000000000000000000000000000000000000ff" {
+		t.Errorf("single-entry sidecar selected %q", got)
+	}
+
+	got, err = selectExpectedChecksum("sha256:abc123def456abc123def456abc123def456abc123def456abc123def4567890",
+		filepath.Join("dir", "vrhub-server-0.1.6.zip"))
+	if err != nil {
+		t.Fatalf("bare hex sidecar must stay usable: %v", err)
+	}
+	if got != "abc123def456abc123def456abc123def456abc123def456abc123def4567890" {
+		t.Errorf("bare hex sidecar selected %q (sha256: prefix must be stripped)", got)
+	}
+}
+
+func TestSelectExpectedChecksum_FailsClosedWhenPlatformMissing(t *testing.T) {
+	body := "aaaa1111  vrhub-server-darwin-amd64.zip\nbbbb2222  vrhub-server-darwin-arm64.zip\n"
+	if _, err := selectExpectedChecksum(body, filepath.Join("dir", "vrhub-server-0.1.6.zip")); err == nil {
+		// Only valid if this platform genuinely is darwin (fixture platforms).
+		if runtime.GOOS != "darwin" {
+			t.Errorf("a sidecar with no entry for %s-%s must fail closed, got no error", runtime.GOOS, runtime.GOARCH)
+		}
+	}
+
+	// Ambiguity: two entries naming this platform with different hashes.
+	platform := fmt.Sprintf("-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+	amb := fmt.Sprintf("aaaa1111  vrhub-server-0.1.6%s\nbbbb2222  vrhub-server-9.9.9%s\n", platform, platform)
+	if _, err := selectExpectedChecksum(amb, filepath.Join("dir", "vrhub-server-0.1.6.zip")); err == nil {
+		t.Error("an ambiguous sidecar must fail closed, got no error")
+	}
+
+	if _, err := selectExpectedChecksum("\n\n   \n", filepath.Join("dir", "v.zip")); err == nil {
+		t.Error("an empty checksum body must be an error")
+	}
+}
+
+// TestVerifySHA256_MultiPlatformSidecarEndToEnd proves verifySHA256 accepts the
+// real published shape: a multi-entry checksums.txt where this platform's entry
+// matches and the first line does not.
+func TestVerifySHA256_MultiPlatformSidecarEndToEnd(t *testing.T) {
+	payload := fakeBinaryBytes()
+	myHash := sha256Of(payload)
+	platform := fmt.Sprintf("-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "vrhub-server-0.1.6.zip")
+	if err := os.WriteFile(zipPath, payload, 0644); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+
+	body := fmt.Sprintf("%s  vrhub-server-darwin-amd64.zip\n%s  vrhub-server-%s\n",
+		"4a6e0c9ead8dfee109366ef72d94a50e57978eebd37593255fb120957c4f5e71", myHash, platform)
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer ts.Close()
+
+	app := &Applicator{config: ApplyConfig{DataDir: tmpDir, ChecksumURL: ts.URL}, httpClient: ts.Client()}
+	if err := app.verifySHA256(context.Background(), zipPath); err != nil {
+		t.Fatalf("verifySHA256 must accept the multi-platform sidecar entry for this platform: %v", err)
+	}
+
+	// Same file, this platform's hash corrupted: must reject.
+	badBody := fmt.Sprintf("%s  vrhub-server-darwin-amd64.zip\n%s  vrhub-server-%s\n",
+		"4a6e0c9ead8dfee109366ef72d94a50e57978eebd37593255fb120957c4f5e71",
+		"0000000000000000000000000000000000000000000000000000000000000000", platform)
+	bad := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, badBody)
+	}))
+	defer bad.Close()
+
+	appBad := &Applicator{config: ApplyConfig{DataDir: tmpDir, ChecksumURL: bad.URL}, httpClient: bad.Client()}
+	if err := appBad.verifySHA256(context.Background(), zipPath); err == nil {
+		t.Error("verifySHA256 must reject when this platform's entry does not match")
+	}
+}
+
+// TestChecksumsURLFor covers deriving the sidecar URL from the asset URL the
+// checker resolves, which is what puts checksum verification on the auto-apply
+// path at all: the release workflow publishes checksums.txt in the same
+// directory as the platform archives.
+func TestChecksumsURLFor(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "published GitHub asset",
+			url:  "https://github.com/LeGeRyChEeSe/vrhub-server/releases/download/v0.1.6/vrhub-server-windows-amd64.zip",
+			want: "https://github.com/LeGeRyChEeSe/vrhub-server/releases/download/v0.1.6/checksums.txt",
+		},
+		{
+			name: "objects.githubusercontent CDN asset keeps its own directory",
+			url:  "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/abcd?X-Amz-Signature=x",
+			want: "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1234/checksums.txt",
+		},
+		{name: "http is not upgraded", url: "http://example.com/releases/download/v1/a.zip", want: ""},
+		{name: "host only, no path", url: "https://example.com", want: ""},
+		{name: "root path", url: "https://example.com/", want: ""},
+		{name: "not a URL", url: "not a url", want: ""},
+		{name: "empty", url: "", want: ""},
+	}
+	for _, tc := range cases {
+		got := checksumsURLFor(tc.url)
+		if got != tc.want {
+			t.Errorf("%s: checksumsURLFor(%q) = %q, want %q", tc.name, tc.url, got, tc.want)
+		}
+	}
+}
+
+// TestNewAutoApplyApplicator_WiresChecksum proves the auto-apply path verifies
+// integrity. Before this wiring ChecksumURL was never set anywhere, so
+// DownloadAndApply skipped verifySHA256 entirely and replaced the running binary
+// with whatever bytes the download produced.
+func TestNewAutoApplyApplicator_WiresChecksum(t *testing.T) {
+	base := NewApplicator(DefaultApplyConfig(t.TempDir()))
+	asset := "https://github.com/LeGeRyChEeSe/vrhub-server/releases/download/v0.1.6/vrhub-server-linux-arm64.zip"
+
+	a := newAutoApplyApplicator(base, asset, "0.1.6", false)
+
+	if a.config.ChecksumURL == "" {
+		t.Fatal("auto-apply applicator must set ChecksumURL so the download is verified")
+	}
+	if want := "https://github.com/LeGeRyChEeSe/vrhub-server/releases/download/v0.1.6/checksums.txt"; a.config.ChecksumURL != want {
+		t.Errorf("ChecksumURL = %q, want %q", a.config.ChecksumURL, want)
+	}
+	if a.config.DownloadURL != asset {
+		t.Errorf("DownloadURL = %q, want the asset URL %q", a.config.DownloadURL, asset)
+	}
+	if a.config.DataDir != base.config.DataDir {
+		t.Error("auto-apply must use the checker applicator's data directory")
+	}
+	if a.config.MaxBackups != base.config.MaxBackups {
+		t.Errorf("MaxBackups = %d, want inherited %d", a.config.MaxBackups, base.config.MaxBackups)
+	}
+	if !a.config.AutoBackup {
+		t.Error("auto-apply must keep backups")
+	}
+	if a.config.AutoRestart {
+		t.Error("AutoRestart must come from the caller (false here), not be forced on")
+	}
+	if got := newAutoApplyApplicator(base, asset, "0.1.6", true); !got.config.AutoRestart {
+		t.Error("AutoRestart = true must be honoured")
+	}
+
+	// A non-derivable download URL must leave verification off rather than point
+	// the applicator at a URL that would 404 and block every update.
+	if got := newAutoApplyApplicator(base, "http://example.com/a.zip", "0.1.6", false); got.config.ChecksumURL != "" {
+		t.Errorf("ChecksumURL = %q for a non-https asset, want empty (no verification)", got.config.ChecksumURL)
+	}
+}
+
 func TestCopyFile_PreservesMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission semantics")

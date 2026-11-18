@@ -36,7 +36,7 @@ import (
 // version is injected at build time via -ldflags "-X main.version=X.Y.Z"
 // (see .github/workflows/release.yml). Defaults to the last hardcoded
 // release for local `go build` runs that don't pass ldflags.
-var version = "0.1.6"
+var version = "0.1.7"
 
 func main() {
 	var dataDir string
