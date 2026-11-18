@@ -471,34 +471,38 @@ func TestWait_ShutdownCancelsInFlight(t *testing.T) {
 
 // TestFetcher_MaxFileSize tests that files exceeding maxFileSize are rejected.
 func TestFetcher_MaxFileSize(t *testing.T) {
+	const oversized = maxFileSize + 1
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", "\"test-etag\"")
-		var buf bytes.Buffer
-		gw := gzip.NewWriter(&buf)
+		w.Header().Set("Content-Type", "application/gzip")
+
+		gw := gzip.NewWriter(w)
 		tw := tar.NewWriter(gw)
 
 		hdr := &tar.Header{
 			Name: "oversized/file.bin",
 			Mode: 0644,
-			Size: int64(maxFileSize + 1),
+			Size: int64(oversized),
 		}
-		largeContent := make([]byte, maxFileSize+1)
-		for i := range largeContent {
-			largeContent[i] = 'A'
-		}
-
 		if err := tw.WriteHeader(hdr); err != nil {
 			t.Fatalf("failed to write tar header: %v", err)
 		}
-		if _, err := tw.Write(largeContent); err != nil {
-			t.Fatalf("failed to write large content: %v", err)
+
+		// The oversized entry is streamed through io.Copy from a reader that yields
+		// bytes on demand, instead of being built in a 500 MB buffer first: buffering
+		// and gzip-ing 500 MB before responding took longer than the fetcher's 30s
+		// ResponseHeaderTimeout under -race, so the test failed on "timeout awaiting
+		// response headers" instead of on the size rule it checks. tar.Writer cannot be
+		// flushed mid-entry, so a streaming reader is what keeps the headers and body
+		// flowing without holding 500 MB in memory.
+		if _, err := io.Copy(tw, &repeatingReader{remaining: oversized}); err != nil {
+			t.Errorf("failed to stream large content: %v", err)
+			return
 		}
 
 		tw.Close()
 		gw.Close()
-
-		w.Header().Set("Content-Type", "application/gzip")
-		io.Copy(w, &buf)
 	}))
 	defer ts.Close()
 
@@ -511,6 +515,27 @@ func TestFetcher_MaxFileSize(t *testing.T) {
 	if !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Errorf("expected 'exceeds maximum size' error, got: %v", err)
 	}
+}
+
+// repeatingReader yields n bytes of 'A' in 1 MB blocks, so a test can ask for a
+// multi-hundred-megabyte tar entry without allocating that payload up front.
+type repeatingReader struct {
+	remaining int
+}
+
+func (r *repeatingReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if n > r.remaining {
+		n = r.remaining
+	}
+	for i := 0; i < n; i++ {
+		p[i] = 'A'
+	}
+	r.remaining -= n
+	return n, nil
 }
 
 // TestNewFetcher_NegativeInterval tests that negative intervals are normalized to default.
