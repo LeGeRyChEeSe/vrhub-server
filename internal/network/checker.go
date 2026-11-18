@@ -100,7 +100,7 @@ const (
 // ldflags-injected version through SetUserAgent, mirroring
 // update.SetCurrentVersion; this default matches CurrentVersion's
 // package default for local runs that don't pass ldflags.
-var userAgent = "vrhub-server/0.1.6"
+var userAgent = "vrhub-server/0.1.7"
 
 // SetUserAgent overrides the User-Agent header sent by the checker
 // (typically from main.go with the build-time version).

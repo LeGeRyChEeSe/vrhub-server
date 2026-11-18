@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-11-18
+
+### Fixed
+
+- **Self-update checksum verification compared the downloaded archive against the wrong hash:**
+  `checksums.txt` published by the release workflow lists one entry per platform (darwin, linux and
+  windows, amd64 and arm64), while a client downloads exactly one of those archives. The verifier kept
+  the first line of that file as the expected value, so a windows-amd64 archive was compared against the
+  darwin-amd64 hash and every verified update failed closed on every platform except the one listed
+  first. The entry whose name carries the client's own OS and architecture is now selected, a sidecar
+  naming the downloaded file directly is honoured, and single-entry or bare-hex sidecars keep their
+  previous meaning. When a multi-entry sidecar has no entry for the client's platform, or two entries
+  disagree, verification fails closed instead of guessing. The sidecar body is also read up to 16 KiB
+  instead of 1 KiB, which the published six-entry file exceeded.
+- **Self-update never verified the binary it installed:** `ChecksumURL` was declared and implemented but
+  no caller ever set it — neither `DefaultApplyConfig` nor the checker's auto-apply path — so
+  `verifySHA256` was unreachable in production and an auto-apply replaced the running binary with
+  whatever bytes the download produced, despite a `checksums.txt` being published next to every release.
+  The auto-apply applicator now derives the sidecar URL from the release asset URL it already resolved
+  (`releases/download/<tag>/checksums.txt`). A download URL that is not HTTPS leaves verification off
+  rather than pointing the applicator at an address that would fail every update.
+- **Checksum file read limit truncated a published sidecar:** the 1 KiB read cap silently truncated the
+  six-entry `checksums.txt`, so even a correct first-line comparison could be reached only by accident.
+
+### Added
+
+- **Live release check (opt-in):** `internal/update/live_release_check_test.go` runs the whole
+  self-update chain against the release this repository actually publishes — discovery through the
+  GitHub releases API, download of the real published asset, SHA-256 verification against the published
+  `checksums.txt`, binary replacement and the staged-restart contract — plus a fail-closed case using
+  the same artifact. It is skipped unless `VRHUB_LIVE_RELEASE_CHECK=1` is set, so CI stays offline, and
+  it only ever writes inside its own temporary directory.
+
 ## [0.1.6] - 2026-10-23
 
 ### Added

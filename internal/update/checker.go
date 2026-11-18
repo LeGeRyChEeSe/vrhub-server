@@ -290,15 +290,7 @@ func (c *Checker) check(ctx context.Context) {
 					logger.Info().Str("version", latestVer.String()).Msg("Update checker: auto-applying update")
 					applyCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 					defer cancel()
-					applyCfg := ApplyConfig{
-						DataDir:     app.config.DataDir,
-						AutoBackup:  true,
-						MaxBackups:  app.config.MaxBackups,
-						DownloadURL: downloadURL,
-						Version:     latestVer.String(),
-						AutoRestart: c.config.AutoRestart,
-					}
-					a := NewApplicator(applyCfg)
+					a := newAutoApplyApplicator(app, downloadURL, latestVer.String(), c.config.AutoRestart)
 					if err := a.DownloadAndApply(applyCtx); err != nil {
 						if err == ErrRestartPending {
 							logger.Info().Str("version", latestVer.String()).Msg("Update checker: auto-apply staged, waiting for explicit restart")
@@ -500,7 +492,7 @@ func (v Version) String() string {
 }
 
 // CurrentVersion returns the currently running version of vrhub-server.
-var CurrentVersion = Version{Major: 0, Minor: 1, Patch: 6}
+var CurrentVersion = Version{Major: 0, Minor: 1, Patch: 7}
 
 // SetCurrentVersion sets the current version (typically from build ldflags).
 func SetCurrentVersion(v Version) {

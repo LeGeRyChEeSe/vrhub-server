@@ -48,7 +48,7 @@ GET / HTTP/1.1
 ```json
 {
   "name": "vrhub-server",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "mode": "normal"
 }
 ```

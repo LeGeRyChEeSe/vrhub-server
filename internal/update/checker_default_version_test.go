@@ -69,17 +69,17 @@ func TestChecker_LatestEqualsCurrentDefault_NoUpdateOffered(t *testing.T) {
 func TestChecker_CurrentDefaultMatchesLatestReleaseAfterBump(t *testing.T) {
 	// Guard against the drift this audit found: CurrentVersion must be the
 	// version the release workflow ships, so a server updated to the newest
-	// tag stops advertising an update. 0.1.6 is the release documented in
-	// CHANGELOG.md as shipped; the default must not lag behind it.
-	if !CurrentVersion.GreaterThan(Version{Major: 0, Minor: 1, Patch: 5}) {
-		t.Errorf("CurrentVersion = %s, want > 0.1.5 (the package default must track the last shipped release)", CurrentVersion.String())
+	// tag stops advertising an update. 0.1.7 is the release CHANGELOG.md
+	// documents as shipped; the default must not lag behind it.
+	if !CurrentVersion.GreaterThan(Version{Major: 0, Minor: 1, Patch: 6}) {
+		t.Errorf("CurrentVersion = %s, want > 0.1.6 (the package default must track the last shipped release)", CurrentVersion.String())
 	}
 
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"tag_name": "v0.1.6",
-			"html_url": "https://github.com/test/test/releases/tag/v0.1.6",
+			"tag_name": "v0.1.7",
+			"html_url": "https://github.com/test/test/releases/tag/v0.1.7",
 			"assets":   []map[string]interface{}{},
 		})
 	}))
@@ -93,6 +93,6 @@ func TestChecker_CurrentDefaultMatchesLatestReleaseAfterBump(t *testing.T) {
 		t.Fatal("GetResult returned nil after check")
 	}
 	if result.VersionAvailable {
-		t.Errorf("VersionAvailable = true, want false (server already runs 0.1.6)")
+		t.Errorf("VersionAvailable = true, want false (server already runs 0.1.7)")
 	}
 }
